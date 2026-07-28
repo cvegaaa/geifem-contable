@@ -30,6 +30,7 @@ import NotasCreditoDebito from "./modules/facturacion/notas-credito-debito/index
 
 // Inventario
 import CatalogoProductos from "./modules/inventario/catalogo-productos/index.jsx";
+import Bodegas from "./modules/inventario/bodegas/index.jsx";
 import KardexPP from "./modules/inventario/kardex-promedio-ponderado/index.jsx";
 import SyncPosOnline from "./modules/inventario/sync-pos-online/index.jsx";
 
