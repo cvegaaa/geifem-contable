@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import Logo from "../Logo/index.jsx";
 
 const MODULOS = [
   {
@@ -39,6 +40,7 @@ const MODULOS = [
     grupo: "Inventario",
     items: [
       { to: "/inventario/catalogo-productos", label: "Catálogo de productos" },
+      { to: "/inventario/bodegas", label: "Bodegas" },
       { to: "/inventario/kardex-promedio-ponderado", label: "Kardex PP" },
       { to: "/inventario/sync-pos-online", label: "Sync POS / Online" },
     ],
@@ -79,13 +81,12 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-geifem-navy text-white overflow-y-auto">
       <div className="p-4 border-b border-white/10">
-        <div className="text-xl font-bold">GEIFEM</div>
-        <div className="text-[10px] uppercase tracking-wider text-geifem-gold">Contable</div>
+        <Logo variant="full" theme="light" size={40} />
       </div>
       <nav className="p-2 space-y-4 pb-8">
         {MODULOS.map((g) => (
           <div key={g.grupo}>
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 px-3 mb-1">
+            <div className="text-[11px] uppercase tracking-wider text-geifem-gold-light px-3 mb-1">
               {g.grupo}
             </div>
             {g.items.map((it) => (

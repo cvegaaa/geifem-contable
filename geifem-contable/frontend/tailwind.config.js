@@ -5,9 +5,14 @@ export default {
     extend: {
       colors: {
         geifem: {
-          navy: "#1E3A5F",
-          blue: "#2C4C7C",
-          gold: "#C9A961",
+          // Paleta oficial GEIFEM
+          navy: "#14315E",       // Azul seiroleo (principal)
+          "navy-dark": "#0E2547",
+          blue: "#1E5A7C",       // Azul corporativo (secundario)
+          "blue-light": "#2C7BA8",
+          gold: "#C9A961",       // Dorado degame
+          "gold-light": "#E0C68A",
+          "gold-dark": "#A7893F",
         },
       },
       fontFamily: {
