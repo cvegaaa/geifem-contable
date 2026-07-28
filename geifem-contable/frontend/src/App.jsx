@@ -111,6 +111,7 @@ export default function App() {
 
         <Route path="inventario">
           <Route path="catalogo-productos" element={<CatalogoProductos />} />
+          <Route path="bodegas" element={<Bodegas />} />
           <Route path="kardex-promedio-ponderado" element={<KardexPP />} />
           <Route path="sync-pos-online" element={<SyncPosOnline />} />
         </Route>
