@@ -2,9 +2,11 @@
 from fastapi import APIRouter
 
 from api._crud import crud_router
+from api.inventario import crear_bodega_principal
 
 router = APIRouter()
 
+# Recursos CRUD estándar
 RECURSOS = [
     ("/plan-cuentas", "plan_cuentas"),
     ("/terceros", "terceros"),
@@ -14,7 +16,6 @@ RECURSOS = [
     ("/impuestos", "impuestos_config"),
     ("/unidades-medida", "unidades_medida"),
     ("/formas-pago", "formas_pago"),
-    ("/datos-empresa", "empresas"),
 ]
 
 for prefix, coleccion in RECURSOS:
@@ -26,6 +27,18 @@ for prefix, coleccion in RECURSOS:
             tags=[f"configuracion:{prefix.strip('/')}"],
         )
     )
+
+# Empresas: CRUD + hook que crea bodega "Principal" al crear una empresa nueva.
+router.include_router(
+    crud_router(
+        prefix="/api/configuracion/datos-empresa",
+        coleccion="empresas",
+        modulo_permiso="configuracion",
+        tags=["configuracion:datos-empresa"],
+        on_create=crear_bodega_principal,
+    )
+)
+
 
 
 # usuarios-roles: CRUD limitado (crear/editar/inactivar) sobre colección usuarios

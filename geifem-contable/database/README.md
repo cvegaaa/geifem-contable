@@ -71,14 +71,29 @@ PUC por empresa (semilla inicial según régimen desde `core/puc/seed.py`).
 ### productos
 ```
 { empresa_id, sku, nombre, categoria, unidad_medida_id,
-  costo_promedio_ponderado, existencia, activo }
+  costo_promedio_ponderado, activo }
 ```
+La existencia ya no se guarda aquí (multi-bodega).
+
+### bodegas
+```
+{ empresa_id, nombre, direccion, es_principal, activo }
+```
+Al crear una `empresa` se genera automáticamente una bodega "Principal".
+
+### existencias_por_bodega
+```
+{ empresa_id, producto_id, bodega_id, cantidad, fecha_actualizacion }
+```
+Índice único `(empresa_id, producto_id, bodega_id)`.
 
 ### movimientos_inventario
 ```
-{ empresa_id, producto_id, tipo ("entrada"|"salida"|"ajuste"),
-  cantidad, costo_unitario, fecha, referencia_documento }
+{ empresa_id, producto_id, bodega_id, tipo ("entrada"|"salida"|"ajuste"|"traslado"),
+  cantidad, costo_unitario, fecha, referencia_documento,
+  bodega_destino_id? }
 ```
+`traslado` está reservado para Fase 2.
 
 ### facturas
 ```

@@ -30,6 +30,7 @@ import NotasCreditoDebito from "./modules/facturacion/notas-credito-debito/index
 
 // Inventario
 import CatalogoProductos from "./modules/inventario/catalogo-productos/index.jsx";
+import Bodegas from "./modules/inventario/bodegas/index.jsx";
 import KardexPP from "./modules/inventario/kardex-promedio-ponderado/index.jsx";
 import SyncPosOnline from "./modules/inventario/sync-pos-online/index.jsx";
 
@@ -110,6 +111,7 @@ export default function App() {
 
         <Route path="inventario">
           <Route path="catalogo-productos" element={<CatalogoProductos />} />
+          <Route path="bodegas" element={<Bodegas />} />
           <Route path="kardex-promedio-ponderado" element={<KardexPP />} />
           <Route path="sync-pos-online" element={<SyncPosOnline />} />
         </Route>

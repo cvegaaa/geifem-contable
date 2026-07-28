@@ -4,7 +4,7 @@ Cada recurso vive scoped por `empresa_id` (empresa activa del usuario). El
 borrado es lógico: `activo=False` en lugar de eliminar el documento.
 """
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,7 +24,9 @@ def crud_router(
     coleccion: str,
     modulo_permiso: str,
     tags: list[str] | None = None,
+    on_create: Callable[[dict, str], Awaitable[None]] | None = None,
 ) -> APIRouter:
+    """`on_create(doc_creado, empresa_id_efectivo)` corre después del insert."""
     router = APIRouter(prefix=prefix, tags=tags or [prefix.strip("/")])
 
     @router.get("")
@@ -52,7 +54,13 @@ def crud_router(
         payload["fecha_creacion"] = datetime.now(timezone.utc)
         result = await db[coleccion].insert_one(payload)
         doc = await db[coleccion].find_one({"_id": result.inserted_id})
-        return _serialize(doc)
+        serialized = _serialize(doc)
+        if on_create is not None:
+            # Para colecciones tenant-raíz (p.ej. "empresas") el id del doc
+            # recién creado es también el empresa_id efectivo del hook.
+            eff_empresa_id = empresa_id if coleccion != "empresas" else serialized["id"]
+            await on_create(serialized, eff_empresa_id)
+        return serialized
 
     @router.get("/{item_id}")
     async def obtener(
