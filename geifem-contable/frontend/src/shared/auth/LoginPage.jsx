@@ -55,6 +55,9 @@ export default function LoginPage() {
           onChange={(e) => setPassword(e.target.value)}
         />
         {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        <p className="text-xs text-slate-500 mb-3 bg-slate-50 border border-slate-200 rounded p-2">
+          <strong>Acceso demo:</strong> demo@geifem.co / demo1234
+        </p>
         <button
           type="submit"
           disabled={cargando}
