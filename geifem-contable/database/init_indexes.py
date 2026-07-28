@@ -63,6 +63,14 @@ INDICES = {
     "auditoria_comprobantes": [
         ([("comprobante_id", 1), ("fecha_hora", -1)], {}),
     ],
+    "bodegas": [
+        ([("empresa_id", 1)], {}),
+        ([("empresa_id", 1), ("nombre", 1)], {"unique": True}),
+    ],
+    "existencias_por_bodega": [
+        ([("empresa_id", 1), ("producto_id", 1), ("bodega_id", 1)], {"unique": True}),
+        ([("empresa_id", 1), ("bodega_id", 1)], {}),
+    ],
 }
 
 
