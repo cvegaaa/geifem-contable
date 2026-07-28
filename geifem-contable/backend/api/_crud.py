@@ -54,7 +54,13 @@ def crud_router(
         payload["fecha_creacion"] = datetime.now(timezone.utc)
         result = await db[coleccion].insert_one(payload)
         doc = await db[coleccion].find_one({"_id": result.inserted_id})
-        return _serialize(doc)
+        serialized = _serialize(doc)
+        if on_create is not None:
+            # Para colecciones tenant-raíz (p.ej. "empresas") el id del doc
+            # recién creado es también el empresa_id efectivo del hook.
+            eff_empresa_id = empresa_id if coleccion != "empresas" else serialized["id"]
+            await on_create(serialized, eff_empresa_id)
+        return serialized
 
     @router.get("/{item_id}")
     async def obtener(
