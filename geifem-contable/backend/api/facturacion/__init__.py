@@ -275,3 +275,179 @@ async def listar_notas(
 ):
     db = get_db()
     return [_serialize(d) async for d in db.notas_credito_debito.find({"empresa_id": empresa_id})]
+
+
+# ---------------------------------------------------------------------------
+# Notas crédito / débito — FASE 1
+# ---------------------------------------------------------------------------
+
+class ItemNota(BaseModel):
+    descripcion: str
+    cantidad: float = 1
+    precio_unitario: float
+    tarifa_iva: float = 0
+
+
+class NotaCrear(BaseModel):
+    factura_id: str
+    tipo: str = Field(pattern="^(credito|debito)$")
+    fecha: str
+    motivo: str
+    items: list[ItemNota] = Field(min_length=1)
+
+
+async def _asiento_nota(
+    db, empresa_id: str, nota_id: str, tipo: str, fecha: str,
+    cliente_id: str | None, subtotal: float, iva_total: float, total: float,
+) -> None:
+    """Asiento espejo de la nota.
+
+    Nota crédito = reverso de la venta (débito a ingresos/IVA, crédito a clientes).
+    Nota débito  = mismo sentido que la factura.
+    """
+    ahora = datetime.now(timezone.utc)
+    ref = f"NOTA-{tipo.upper()}-{nota_id}"
+    cta_clientes = await _buscar_cuenta_puc(db, empresa_id, "1305")
+    cta_ingresos = await _buscar_cuenta_puc(db, empresa_id, "4135")
+    cta_iva = await _buscar_cuenta_puc(db, empresa_id, "2408")
+    signo = -1 if tipo == "credito" else 1
+
+    def linea(cuenta, debito, credito):
+        return {
+            "empresa_id": empresa_id, "fecha": fecha, "cuenta_puc_id": cuenta,
+            "tercero_id": cliente_id,
+            "debito": round(max(debito, 0), 2), "credito": round(max(credito, 0), 2),
+            "referencia": ref, "fecha_creacion": ahora,
+        }
+
+    asientos = []
+    if cta_clientes:
+        asientos.append(linea(cta_clientes, total if signo > 0 else 0, total if signo < 0 else 0))
+    if cta_ingresos:
+        asientos.append(linea(cta_ingresos, subtotal if signo < 0 else 0, subtotal if signo > 0 else 0))
+    if iva_total > 0 and cta_iva:
+        asientos.append(linea(cta_iva, iva_total if signo < 0 else 0, iva_total if signo > 0 else 0))
+    if asientos:
+        await db.asientos_contables.insert_many(asientos)
+
+
+@router.post("/notas-credito-debito", status_code=201)
+async def crear_nota(
+    payload: NotaCrear,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("facturacion", "crear")),
+):
+    db = get_db()
+    try:
+        oid = ObjectId(payload.factura_id)
+    except Exception:
+        raise HTTPException(400, "factura_id inválido")
+    factura = await db.facturas.find_one({"_id": oid, "empresa_id": empresa_id})
+    if not factura:
+        raise HTTPException(404, "Factura origen no encontrada")
+
+    subtotal = 0.0
+    iva_total = 0.0
+    items = []
+    for it in payload.items:
+        if it.cantidad <= 0 or it.precio_unitario < 0:
+            raise HTTPException(422, "Cantidad o precio inválido")
+        ls = it.cantidad * it.precio_unitario
+        li = ls * (it.tarifa_iva / 100)
+        items.append({**it.model_dump(), "subtotal": round(ls, 2), "iva": round(li, 2),
+                      "total": round(ls + li, 2)})
+        subtotal += ls
+        iva_total += li
+    total = subtotal + iva_total
+
+    consecutivo = await db.notas_credito_debito.count_documents(
+        {"empresa_id": empresa_id, "tipo": payload.tipo}
+    ) + 1
+    doc = {
+        "empresa_id": empresa_id,
+        "tipo": payload.tipo,
+        "prefijo": "NC" if payload.tipo == "credito" else "ND",
+        "consecutivo": consecutivo,
+        "factura_id": payload.factura_id,
+        "factura_numero": f"{factura.get('prefijo','')}{factura.get('consecutivo','')}",
+        "cliente_id": factura.get("cliente_id"),
+        "cliente_nombre": factura.get("cliente_nombre", ""),
+        "fecha": payload.fecha,
+        "motivo": payload.motivo,
+        "items": items,
+        "subtotal": round(subtotal, 2),
+        "iva_total": round(iva_total, 2),
+        "total": round(total, 2),
+        "estado_dian": "borrador",
+        "creado_por": usuario["id"],
+        "fecha_creacion": datetime.now(timezone.utc),
+    }
+    res = await db.notas_credito_debito.insert_one(doc)
+    await _asiento_nota(db, empresa_id, str(res.inserted_id), payload.tipo, payload.fecha,
+                        factura.get("cliente_id"), subtotal, iva_total, total)
+    return _serialize(await db.notas_credito_debito.find_one({"_id": res.inserted_id}))
+
+
+# ---------------------------------------------------------------------------
+# Documento equivalente POS — FASE 1
+# ---------------------------------------------------------------------------
+
+class ItemPos(BaseModel):
+    producto_id: str | None = None
+    descripcion: str
+    cantidad: float = 1
+    precio_unitario: float
+    tarifa_iva: float = 0
+
+
+class PosCrear(BaseModel):
+    fecha: str
+    cliente_id: str | None = None
+    forma_pago_id: str | None = None
+    items: list[ItemPos] = Field(min_length=1)
+    observaciones: str | None = None
+
+
+@router.post("/documento-equivalente-pos", status_code=201)
+async def crear_pos(
+    payload: PosCrear,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("facturacion", "crear")),
+):
+    db = get_db()
+    subtotal = 0.0
+    iva_total = 0.0
+    items = []
+    for it in payload.items:
+        if it.cantidad <= 0 or it.precio_unitario < 0:
+            raise HTTPException(422, "Cantidad o precio inválido")
+        ls = it.cantidad * it.precio_unitario
+        li = ls * (it.tarifa_iva / 100)
+        items.append({**it.model_dump(), "subtotal": round(ls, 2), "iva": round(li, 2),
+                      "total": round(ls + li, 2)})
+        subtotal += ls
+        iva_total += li
+    total = subtotal + iva_total
+
+    consecutivo = await db.documentos_pos.count_documents({"empresa_id": empresa_id}) + 1
+    doc = {
+        "empresa_id": empresa_id,
+        "prefijo": "POS",
+        "consecutivo": consecutivo,
+        "fecha": payload.fecha,
+        "cliente_id": payload.cliente_id,
+        "forma_pago_id": payload.forma_pago_id,
+        "items": items,
+        "subtotal": round(subtotal, 2),
+        "iva_total": round(iva_total, 2),
+        "total": round(total, 2),
+        "observaciones": payload.observaciones,
+        "creado_por": usuario["id"],
+        "fecha_creacion": datetime.now(timezone.utc),
+    }
+    res = await db.documentos_pos.insert_one(doc)
+    await _generar_asiento_espejo(
+        db, empresa_id, str(res.inserted_id), payload.fecha,
+        payload.cliente_id or "", subtotal, iva_total, total,
+    )
+    return _serialize(await db.documentos_pos.find_one({"_id": res.inserted_id}))
