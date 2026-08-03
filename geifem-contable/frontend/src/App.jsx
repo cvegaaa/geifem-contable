@@ -35,6 +35,8 @@ import KardexPP from "./modules/inventario/kardex-promedio-ponderado/index.jsx";
 import SyncPosOnline from "./modules/inventario/sync-pos-online/index.jsx";
 
 // Reportes
+import IndiceReportes, { CategoriaReportes } from "./modules/reportes/index.jsx";
+import VistaReporte from "./modules/reportes/_VistaReporte.jsx";
 import Form300Iva from "./modules/reportes/form-300-iva/index.jsx";
 import Form260Simple from "./modules/reportes/form-260-simple/index.jsx";
 import EstadosFinancieros from "./modules/reportes/estados-financieros/index.jsx";
@@ -117,12 +119,15 @@ export default function App() {
         </Route>
 
         <Route path="reportes">
+          <Route index element={<IndiceReportes />} />
           <Route path="form-300-iva" element={<Form300Iva />} />
           <Route path="form-260-simple" element={<Form260Simple />} />
           <Route path="estados-financieros" element={<EstadosFinancieros />} />
           <Route path="form-350-retenciones" element={<Form350 />} />
           <Route path="libros-oficiales" element={<LibrosOficiales />} />
           <Route path="exogena" element={<Exogena />} />
+          <Route path=":categoria" element={<CategoriaReportes />} />
+          <Route path=":categoria/:slug" element={<VistaReporte />} />
         </Route>
 
         <Route path="compras">

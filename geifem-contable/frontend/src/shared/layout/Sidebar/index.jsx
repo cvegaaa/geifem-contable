@@ -48,6 +48,14 @@ const MODULOS = [
   {
     grupo: "Reportes",
     items: [
+      { to: "/reportes", label: "Catálogo de reportes" },
+      { to: "/reportes/ventas", label: "Ventas" },
+      { to: "/reportes/administrativos", label: "Administrativos" },
+      { to: "/reportes/financieros", label: "Financieros" },
+      { to: "/reportes/contables", label: "Contables" },
+      { to: "/reportes/fiscales", label: "Fiscales" },
+      { to: "/reportes/para-trabajar", label: "Para trabajar" },
+      { to: "/reportes/exogena", label: "Información exógena" },
       { to: "/reportes/form-300-iva", label: "Form 300 IVA" },
       { to: "/reportes/form-260-simple", label: "Form 260 SIMPLE" },
       { to: "/reportes/estados-financieros", label: "Estados financieros" },
