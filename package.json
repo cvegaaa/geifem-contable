@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "cd geifem-contable/frontend && bun install --silent && bunx --bun vite --port 8080 --host 0.0.0.0",
-    "build": "cd geifem-contable/frontend && bun install --silent && bunx --bun vite build"
+    "build": "cd geifem-contable/frontend && bun install --silent && bunx --bun vite build",
+    "build:dev": "cd geifem-contable/frontend && bun install --silent && bunx --bun vite build --mode development",
+    "preview": "cd geifem-contable/frontend && bunx --bun vite preview --port 8080 --host 0.0.0.0"
   }
 }
