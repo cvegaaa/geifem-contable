@@ -60,7 +60,7 @@ const MODULOS = [
       { to: "/reportes/form-260-simple", label: "Form 260 SIMPLE" },
       { to: "/reportes/estados-financieros", label: "Estados financieros" },
       { to: "/reportes/form-350-retenciones", label: "Form 350 (F2)" },
-      { to: "/reportes/libros-oficiales", label: "Libros oficiales (F2)" },
+      { to: "/reportes/libros-oficiales", label: "Libros oficiales" },
       { to: "/reportes/exogena", label: "Exógena (F3)" },
     ],
   },
