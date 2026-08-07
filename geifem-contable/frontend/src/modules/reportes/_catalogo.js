@@ -25,11 +25,11 @@ const CATALOGO = [
       "Haz seguimiento a tus transacciones y obtén información para controlar la salud financiera de tu empresa.",
     reportes: [
       { slug: "cuentas-por-cobrar", titulo: "Cuentas por cobrar", descripcion: "Controla el vencimiento y cobro de tus facturas a crédito.", estado: "activo" },
-      { slug: "cuentas-por-pagar", titulo: "Cuentas por pagar", descripcion: "Controla tus deudas registradas y pagos pendientes a proveedores.", estado: "fase2" },
+      { slug: "cuentas-por-pagar", titulo: "Cuentas por pagar", descripcion: "Controla tus deudas registradas y pagos pendientes a proveedores.", estado: "activo" },
       { slug: "ingresos-y-gastos", titulo: "Ingresos y gastos", descripcion: "Conoce los valores asociados a tus cuentas de ingresos y egresos.", estado: "activo" },
       { slug: "valor-inventario", titulo: "Valor de inventario", descripcion: "Consulta el valor actual, cantidad y costo promedio de tu inventario.", estado: "activo" },
       { slug: "transacciones", titulo: "Transacciones", descripcion: "Consulta los movimientos de dinero registrados en tu contabilidad.", estado: "activo" },
-      { slug: "compras", titulo: "Compras", descripcion: "Consulta las facturas de compra que tienes registradas en tu cuenta.", estado: "fase2" },
+      { slug: "compras", titulo: "Compras", descripcion: "Consulta las facturas de compra que tienes registradas en tu cuenta.", estado: "activo" },
       { slug: "reporte-anual", titulo: "Reporte anual", descripcion: "Conoce el rendimiento que ha tenido tu negocio en cada año.", estado: "activo" },
     ],
   },
@@ -39,7 +39,7 @@ const CATALOGO = [
     descripcion:
       "Analiza los resultados financieros de tu empresa, incluyendo entradas y salidas de efectivo.",
     reportes: [
-      { slug: "flujo-de-caja", titulo: "Flujo de caja", descripcion: "Revisa la evolución de tus movimientos de efectivo y conoce la liquidez de tu empresa.", estado: "fase2" },
+      { slug: "flujo-de-caja", titulo: "Flujo de caja", descripcion: "Revisa la evolución de tus movimientos de efectivo y conoce la liquidez de tu empresa.", estado: "activo" },
     ],
   },
   {
@@ -69,7 +69,7 @@ const CATALOGO = [
       { slug: "comprobante-informe-diario", titulo: "Comprobante de informe diario", descripcion: "Exporta el resumen de tus facturas registradas en tu punto de venta.", estado: "activo", exporta: "Excel" },
       { slug: "form-300-iva", titulo: "Formulario 300 — IVA", descripcion: "Declaración del impuesto sobre las ventas.", estado: "activo" },
       { slug: "form-260-simple", titulo: "Formulario 260 — SIMPLE", descripcion: "Recibo electrónico del régimen simple de tributación.", estado: "activo" },
-      { slug: "formulario-350", titulo: "Formulario 350", descripcion: "Declaración retenciones en la fuente.", estado: "fase2" },
+      { slug: "formulario-350", titulo: "Formulario 350", descripcion: "Declaración retenciones en la fuente.", estado: "activo" },
     ],
   },
   {
