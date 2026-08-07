@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import api from "../../../core/api.js";
-import Table from "../../../shared/layout/Table/index.jsx";
-import Modal from "../../../shared/layout/Modal/index.jsx";
-import FormField, { Input, Select } from "../../../shared/layout/FormField/index.jsx";
+import api from "../../core/api.js";
+import Table from "../../shared/layout/Table/index.jsx";
+import Modal from "../../shared/layout/Modal/index.jsx";
+import FormField, { Input, Select } from "../../shared/layout/FormField/index.jsx";
 
 const fmtCOP = (n) =>
   n == null ? "" : "$" + Number(n).toLocaleString("es-CO", { maximumFractionDigits: 2 });
