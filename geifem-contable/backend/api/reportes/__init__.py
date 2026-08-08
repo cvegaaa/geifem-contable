@@ -746,7 +746,203 @@ async def r_formulario_350(empresa_id, desde, hasta):
     )
 
 
+# ---------------------------------------------------------------------------
+# Información exógena (Fase 3) — formatos DIAN
+# ---------------------------------------------------------------------------
+
+COLS_TERCERO = [
+    {"key": "tipo_documento", "label": "Tipo doc."},
+    {"key": "numero_documento", "label": "N° documento"},
+    {"key": "razon_social", "label": "Razón social / Nombre"},
+]
+
+
+async def _terceros_detalle(empresa_id: str):
+    db = get_db()
+    return {str(t["_id"]): t async for t in db.terceros.find({"empresa_id": empresa_id})}
+
+
+def _datos_tercero(t: dict | None, nombre_fallback: str = "") -> dict:
+    t = t or {}
+    return {
+        "tipo_documento": t.get("tipo_documento", "31"),
+        "numero_documento": t.get("numero_documento") or t.get("nit", ""),
+        "razon_social": t.get("nombre") or nombre_fallback or "Sin identificar",
+    }
+
+
+async def _exogena_compras(empresa_id, desde, hasta):
+    return await _facturas_proveedor(empresa_id, desde, hasta)
+
+
+async def r_formato_1001(empresa_id, desde, hasta):
+    """Pagos o abonos en cuenta y retenciones practicadas."""
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(lambda: {"pago": 0.0, "retefuente": 0.0, "reteiva": 0.0, "reteica": 0.0})
+    nombres = {}
+    for f in await _exogena_compras(empresa_id, desde, hasta):
+        k = f.get("proveedor_id") or f.get("proveedor_nombre", "—")
+        nombres[k] = f.get("proveedor_nombre", "")
+        ret = f.get("retenciones", {}) or {}
+        a = acc[k]
+        a["pago"] += float(f.get("subtotal", 0))
+        a["retefuente"] += float(ret.get("retefuente", 0))
+        a["reteiva"] += float(ret.get("reteiva", 0))
+        a["reteica"] += float(ret.get("reteica", 0))
+    filas = [
+        {**_datos_tercero(terceros.get(k), nombres.get(k, "")),
+         **{kk: round(vv, 2) for kk, vv in v.items()}}
+        for k, v in acc.items()
+    ]
+    filas.sort(key=lambda f: -f["pago"])
+    return _tabla(
+        COLS_TERCERO + [
+            {"key": "pago", "label": "Pago o abono en cuenta"},
+            {"key": "retefuente", "label": "Retención practicada renta"},
+            {"key": "reteiva", "label": "ReteIVA practicada"},
+            {"key": "reteica", "label": "ReteICA practicada"},
+        ],
+        filas,
+        {"terceros": len(filas),
+         "pagos": round(sum(f["pago"] for f in filas), 2),
+         "retenciones": round(sum(f["retefuente"] + f["reteiva"] + f["reteica"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1003(empresa_id, desde, hasta):
+    """Retenciones en la fuente que le practicaron (informadas en ventas)."""
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(lambda: {"base": 0.0, "retencion": 0.0})
+    nombres = {}
+    for f in await _facturas(empresa_id, desde, hasta):
+        ret = f.get("retenciones", {}) or {}
+        total_ret = sum(float(v) for v in ret.values() if isinstance(v, (int, float)))
+        if total_ret <= 0:
+            continue
+        k = f.get("cliente_id") or f.get("cliente_nombre", "—")
+        nombres[k] = f.get("cliente_nombre", "")
+        acc[k]["base"] += float(f.get("subtotal", 0))
+        acc[k]["retencion"] += total_ret
+    filas = [
+        {**_datos_tercero(terceros.get(k), nombres.get(k, "")),
+         "base": round(v["base"], 2), "retencion": round(v["retencion"], 2)}
+        for k, v in acc.items()
+    ]
+    return _tabla(
+        COLS_TERCERO + [{"key": "base", "label": "Base sometida"},
+                        {"key": "retencion", "label": "Retención que le practicaron"}],
+        filas, {"terceros": len(filas),
+                "retencion": round(sum(f["retencion"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1005(empresa_id, desde, hasta):
+    """IVA descontable (compras)."""
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(lambda: {"base": 0.0, "iva": 0.0})
+    nombres = {}
+    for f in await _exogena_compras(empresa_id, desde, hasta):
+        if float(f.get("iva_total", 0)) <= 0:
+            continue
+        k = f.get("proveedor_id") or f.get("proveedor_nombre", "—")
+        nombres[k] = f.get("proveedor_nombre", "")
+        acc[k]["base"] += float(f.get("subtotal", 0))
+        acc[k]["iva"] += float(f.get("iva_total", 0))
+    filas = [{**_datos_tercero(terceros.get(k), nombres.get(k, "")),
+              "base": round(v["base"], 2), "iva": round(v["iva"], 2)} for k, v in acc.items()]
+    return _tabla(
+        COLS_TERCERO + [{"key": "base", "label": "Base"},
+                        {"key": "iva", "label": "IVA descontable"}],
+        filas, {"terceros": len(filas), "iva": round(sum(f["iva"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1006(empresa_id, desde, hasta):
+    """IVA generado (ventas)."""
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(lambda: {"base": 0.0, "iva": 0.0})
+    nombres = {}
+    for f in await _facturas(empresa_id, desde, hasta):
+        if float(f.get("iva_total", 0)) <= 0:
+            continue
+        k = f.get("cliente_id") or f.get("cliente_nombre", "—")
+        nombres[k] = f.get("cliente_nombre", "")
+        acc[k]["base"] += float(f.get("subtotal", 0))
+        acc[k]["iva"] += float(f.get("iva_total", 0))
+    filas = [{**_datos_tercero(terceros.get(k), nombres.get(k, "")),
+              "base": round(v["base"], 2), "iva": round(v["iva"], 2)} for k, v in acc.items()]
+    return _tabla(
+        COLS_TERCERO + [{"key": "base", "label": "Base"},
+                        {"key": "iva", "label": "IVA generado"}],
+        filas, {"terceros": len(filas), "iva": round(sum(f["iva"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1007(empresa_id, desde, hasta):
+    """Ingresos recibidos en el periodo, por tercero."""
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(float)
+    nombres = {}
+    for f in await _facturas(empresa_id, desde, hasta):
+        k = f.get("cliente_id") or f.get("cliente_nombre", "—")
+        nombres[k] = f.get("cliente_nombre", "")
+        acc[k] += float(f.get("subtotal", 0))
+    pos_total = round(sum(float(d.get("subtotal", 0)) for d in await _pos(empresa_id, desde, hasta)), 2)
+    filas = [{**_datos_tercero(terceros.get(k), nombres.get(k, "")), "ingreso": round(v, 2)}
+             for k, v in sorted(acc.items(), key=lambda x: -x[1])]
+    if pos_total:
+        filas.append({"tipo_documento": "43", "numero_documento": "222222222",
+                      "razon_social": "Cuantías menores (POS)", "ingreso": pos_total})
+    return _tabla(
+        COLS_TERCERO + [{"key": "ingreso", "label": "Ingreso bruto recibido"}],
+        filas, {"terceros": len(filas), "ingresos": round(sum(f["ingreso"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1008(empresa_id, desde, hasta):
+    """Saldo de cuentas por cobrar al corte."""
+    db = get_db()
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(float)
+    nombres = {}
+    async for f in db.facturas.find({"empresa_id": empresa_id, "fecha": {"$lte": hasta}}):
+        saldo = float(f.get("saldo_pendiente", f.get("total", 0)))
+        if saldo <= 0.009:
+            continue
+        k = f.get("cliente_id") or f.get("cliente_nombre", "—")
+        nombres[k] = f.get("cliente_nombre", "")
+        acc[k] += saldo
+    filas = [{**_datos_tercero(terceros.get(k), nombres.get(k, "")), "saldo": round(v, 2)}
+             for k, v in sorted(acc.items(), key=lambda x: -x[1])]
+    return _tabla(
+        COLS_TERCERO + [{"key": "saldo", "label": "Saldo cuentas por cobrar"}],
+        filas, {"terceros": len(filas), "saldo": round(sum(f["saldo"] for f in filas), 2)},
+    )
+
+
+async def r_formato_1009(empresa_id, desde, hasta):
+    """Saldo de cuentas por pagar al corte."""
+    db = get_db()
+    terceros = await _terceros_detalle(empresa_id)
+    acc = defaultdict(float)
+    nombres = {}
+    async for f in db.facturas_proveedor.find({"empresa_id": empresa_id, "fecha": {"$lte": hasta}}):
+        saldo = float(f.get("saldo_pendiente", f.get("total_a_pagar", 0)))
+        if saldo <= 0.009:
+            continue
+        k = f.get("proveedor_id") or f.get("proveedor_nombre", "—")
+        nombres[k] = f.get("proveedor_nombre", "")
+        acc[k] += saldo
+    filas = [{**_datos_tercero(terceros.get(k), nombres.get(k, "")), "saldo": round(v, 2)}
+             for k, v in sorted(acc.items(), key=lambda x: -x[1])]
+    return _tabla(
+        COLS_TERCERO + [{"key": "saldo", "label": "Saldo cuentas por pagar"}],
+        filas, {"terceros": len(filas), "saldo": round(sum(f["saldo"] for f in filas), 2)},
+    )
+
+
 GENERADORES = {
+
     ("ventas", "ventas-generales"): r_ventas_generales,
     ("ventas", "ventas-por-item"): r_ventas_por_item,
     ("ventas", "ventas-por-cliente"): r_ventas_por_cliente,
