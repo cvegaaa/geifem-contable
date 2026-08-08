@@ -388,9 +388,166 @@ async def flujo_caja(
     }
 
 
+# ---------------------------------------------------------------------------
+# Conciliación bancaria automática — FASE 3
+# ---------------------------------------------------------------------------
+
+class LineaExtracto(BaseModel):
+    fecha: str
+    descripcion: str
+    valor: float  # positivo = crédito (ingreso), negativo = débito (egreso)
+    referencia: str | None = None
+
+
+class ExtractoCargar(BaseModel):
+    cuenta_id: str
+    lineas: list[LineaExtracto]
+
+
+class ConciliacionConfirmar(BaseModel):
+    cuenta_id: str
+    pares: list[dict]  # [{extracto_id, movimiento_id}]
+
+
+@tesoreria.post("/conciliacion/extracto", status_code=201)
+async def cargar_extracto(
+    payload: ExtractoCargar,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("tesoreria", "crear")),
+):
+    """Carga las líneas del extracto bancario para una cuenta."""
+    await _validar_cuenta(db := get_db(), empresa_id, "banco", payload.cuenta_id)
+    if not payload.lineas:
+        raise HTTPException(422, "El extracto no tiene líneas")
+    ahora = datetime.now(timezone.utc)
+    docs = [
+        {
+            **l.model_dump(), "empresa_id": empresa_id, "cuenta_id": payload.cuenta_id,
+            "conciliado": False, "movimiento_id": None,
+            "creado_por": usuario["id"], "fecha_creacion": ahora,
+        }
+        for l in payload.lineas
+    ]
+    res = await db.extractos_bancarios.insert_many(docs)
+    return {"cargadas": len(res.inserted_ids), "cuenta_id": payload.cuenta_id}
+
+
+def _similar(desc: str, concepto: str) -> bool:
+    a = {p for p in desc.lower().split() if len(p) > 3}
+    b = {p for p in (concepto or "").lower().split() if len(p) > 3}
+    return bool(a & b)
+
+
 @tesoreria.get("/conciliacion-bancaria-auto")
-async def conciliacion_auto():
-    raise HTTPException(501, _F3)
+async def conciliacion_auto(
+    cuenta_id: str = Query(...),
+    tolerancia_dias: int = Query(3, ge=0, le=15),
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("tesoreria", "leer")),
+):
+    """Cruza automáticamente el extracto contra los movimientos del libro.
+
+    Regla: mismo valor absoluto y mismo signo, fecha dentro de la tolerancia.
+    Si hay varios candidatos gana el de fecha más cercana; la coincidencia de
+    palabras en la descripción sube la confianza a 'alta'.
+    """
+    db = get_db()
+    await _validar_cuenta(db, empresa_id, "banco", cuenta_id)
+
+    extracto = [
+        _serialize(d)
+        async for d in db.extractos_bancarios.find(
+            {"empresa_id": empresa_id, "cuenta_id": cuenta_id, "conciliado": False}
+        ).sort("fecha", 1)
+    ]
+    movimientos = [
+        _serialize(d)
+        async for d in db.movimientos_tesoreria.find(
+            {"empresa_id": empresa_id, "cuenta_tipo": "banco", "cuenta_id": cuenta_id,
+             "conciliado": {"$ne": True}}
+        ).sort("fecha", 1)
+    ]
+
+    def dias(a: str, b: str) -> int:
+        try:
+            return abs((datetime.fromisoformat(a) - datetime.fromisoformat(b)).days)
+        except Exception:
+            return 999
+
+    usados: set[str] = set()
+    conciliados, sin_par = [], []
+    for lin in extracto:
+        signo_ext = "ingreso" if lin["valor"] >= 0 else "egreso"
+        valor_ext = round(abs(lin["valor"]), 2)
+        candidatos = [
+            m for m in movimientos
+            if m["id"] not in usados
+            and m["tipo"] == signo_ext
+            and abs(round(float(m["valor"]), 2) - valor_ext) <= 0.01
+            and dias(m["fecha"], lin["fecha"]) <= tolerancia_dias
+        ]
+        if not candidatos:
+            sin_par.append(lin)
+            continue
+        mejor = min(candidatos, key=lambda m: dias(m["fecha"], lin["fecha"]))
+        usados.add(mejor["id"])
+        conciliados.append({
+            "extracto_id": lin["id"], "movimiento_id": mejor["id"],
+            "fecha_extracto": lin["fecha"], "fecha_libro": mejor["fecha"],
+            "descripcion": lin["descripcion"], "concepto": mejor.get("concepto", ""),
+            "referencia": mejor.get("referencia", ""),
+            "valor": valor_ext, "tipo": signo_ext,
+            "diferencia_dias": dias(mejor["fecha"], lin["fecha"]),
+            "confianza": (
+                "alta"
+                if dias(mejor["fecha"], lin["fecha"]) == 0
+                or _similar(lin["descripcion"], mejor.get("concepto", ""))
+                else "media"
+            ),
+        })
+
+    libro_sin_par = [m for m in movimientos if m["id"] not in usados]
+    return {
+        "cuenta_id": cuenta_id,
+        "resumen": {
+            "lineas_extracto": len(extracto),
+            "movimientos_libro": len(movimientos),
+            "conciliados": len(conciliados),
+            "extracto_sin_conciliar": len(sin_par),
+            "libro_sin_conciliar": len(libro_sin_par),
+        },
+        "conciliados": conciliados,
+        "extracto_sin_conciliar": sin_par,
+        "libro_sin_conciliar": libro_sin_par,
+    }
+
+
+@tesoreria.post("/conciliacion/confirmar")
+async def confirmar_conciliacion(
+    payload: ConciliacionConfirmar,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("tesoreria", "crear")),
+):
+    """Marca como conciliados los pares aceptados por el usuario."""
+    db = get_db()
+    ahora = datetime.now(timezone.utc)
+    aplicados = 0
+    for par in payload.pares:
+        ext_id = _oid(par.get("extracto_id", ""), "extracto_id")
+        mov_id = _oid(par.get("movimiento_id", ""), "movimiento_id")
+        r1 = await db.extractos_bancarios.update_one(
+            {"_id": ext_id, "empresa_id": empresa_id},
+            {"$set": {"conciliado": True, "movimiento_id": str(mov_id),
+                      "conciliado_por": usuario["id"], "fecha_conciliacion": ahora}},
+        )
+        await db.movimientos_tesoreria.update_one(
+            {"_id": mov_id, "empresa_id": empresa_id},
+            {"$set": {"conciliado": True, "extracto_id": str(ext_id),
+                      "conciliado_por": usuario["id"], "fecha_conciliacion": ahora}},
+        )
+        aplicados += 1 if r1.matched_count else 0
+    return {"conciliados": aplicados}
+
 
 
 router.include_router(tesoreria)
