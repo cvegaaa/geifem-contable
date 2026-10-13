@@ -52,9 +52,12 @@ export default function VistaReporte() {
 
       {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
 
+      {data?.resumen?.advertencia && (
+        <div className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">{data.resumen.advertencia}</div>
+      )}
       {data?.resumen && Object.keys(data.resumen).length > 0 && (
         <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4 mb-4">
-          {Object.entries(data.resumen).map(([k, v]) => (
+          {Object.entries(data.resumen).filter(([k, v]) => v != null && k !== "advertencia").map(([k, v]) => (
             <div key={k} className="bg-white border border-slate-200 rounded-lg p-3">
               <p className="text-xs uppercase text-slate-500">{k.replace(/_/g, " ")}</p>
               <p className="text-lg font-semibold text-geifem-navy">

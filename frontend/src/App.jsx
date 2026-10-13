@@ -18,6 +18,7 @@ import FormasPago from "./modules/configuracion/formas-pago/index.jsx";
 import UsuariosRoles from "./modules/configuracion/usuarios-roles/index.jsx";
 import DatosEmpresa from "./modules/configuracion/datos-empresa/index.jsx";
 import ConceptosRetencion from "./modules/configuracion/conceptos-retencion/index.jsx";
+import TarifasSimple from "./modules/configuracion/tarifas-simple/index.jsx";
 import ImportarDatos from "./modules/configuracion/importar-datos/index.jsx";
 import ParametrosContables from "./modules/configuracion/parametros-contables/index.jsx";
 
@@ -67,6 +68,10 @@ import ComprasRetenciones from "./modules/compras/retenciones/index.jsx";
 import Caja from "./modules/tesoreria/caja/index.jsx";
 import Bancos from "./modules/tesoreria/bancos/index.jsx";
 import AntiguedadCartera from "./modules/tesoreria/antiguedad-cartera/index.jsx";
+import FacturasRecibidas from "./modules/compras/facturas-recibidas/index.jsx";
+import DevolucionesProveedor from "./modules/compras/devoluciones-proveedor/index.jsx";
+import Anticipos from "./modules/tesoreria/anticipos/index.jsx";
+import Transferencias from "./modules/tesoreria/transferencias/index.jsx";
 import CxcCxp from "./modules/tesoreria/cxc-cxp/index.jsx";
 import FlujoCaja from "./modules/tesoreria/flujo-caja/index.jsx";
 import ConciliacionAuto from "./modules/tesoreria/conciliacion-bancaria-auto/index.jsx";
@@ -111,6 +116,7 @@ export default function App() {
           <Route path="plan-cuentas" element={<PlanCuentas />} />
           <Route path="parametros-contables" element={<ParametrosContables />} />
           <Route path="conceptos-retencion" element={<ConceptosRetencion />} />
+          <Route path="tarifas-simple" element={<TarifasSimple />} />
           <Route path="importar-datos" element={<ImportarDatos />} />
           <Route path="resoluciones-dian" element={<ResolucionesDian />} />
           <Route path="impuestos" element={<Impuestos />} />
@@ -150,6 +156,8 @@ export default function App() {
           <Route index element={<ModuloHub slug="compras" />} />
           <Route path="ordenes-compra" element={<OrdenesCompra />} />
           <Route path="recepcion-mercancia" element={<RecepcionMercancia />} />
+          <Route path="devoluciones-proveedor" element={<DevolucionesProveedor />} />
+          <Route path="facturas-recibidas" element={<FacturasRecibidas />} />
           <Route path="facturas-proveedor" element={<FacturasProveedor />} />
           <Route path="retenciones" element={<ComprasRetenciones />} />
         </Route>
@@ -159,6 +167,8 @@ export default function App() {
           <Route path="caja" element={<Caja />} />
           <Route path="bancos" element={<Bancos />} />
           <Route path="cxc-cxp" element={<CxcCxp />} />
+          <Route path="anticipos" element={<Anticipos />} />
+          <Route path="transferencias" element={<Transferencias />} />
           <Route path="antiguedad-cartera" element={<AntiguedadCartera />} />
           <Route path="flujo-caja" element={<FlujoCaja />} />
           <Route path="conciliacion-bancaria-auto" element={<ConciliacionAuto />} />

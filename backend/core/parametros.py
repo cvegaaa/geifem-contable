@@ -53,6 +53,8 @@ PARAMETROS: dict[str, tuple[str, str, str]] = {
     "nomina_intereses": ("Nómina", "Intereses sobre cesantías", "2515"),
     "nomina_prima": ("Nómina", "Prima de servicios", "2520"),
     "nomina_vacaciones": ("Nómina", "Vacaciones consolidadas", "2525"),
+    "anticipos_clientes": ("Tesorería", "Anticipos recibidos de clientes (pasivo)", "2805"),
+    "anticipos_proveedores": ("Tesorería", "Anticipos entregados a proveedores (activo)", "1330"),
     "caja": ("Tesorería", "Caja (si la caja no tiene cuenta propia)", "1105"),
     "bancos": ("Tesorería", "Bancos (si la cuenta bancaria no tiene cuenta propia)", "1110"),
 }

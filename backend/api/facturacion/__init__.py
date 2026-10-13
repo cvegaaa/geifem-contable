@@ -128,23 +128,25 @@ async def _efectos_venta(
                 {"_id": oid(it["producto_id"]), "empresa_id": empresa_id}, session=s
             )
 
-    ingresos: dict[str, float] = defaultdict(float)
-    costos: dict[tuple[str, str], float] = defaultdict(float)  # (cuenta costo, cuenta inventario)
-    for it in doc["items"]:
-        prod = productos.get(it.get("producto_id"))
-        ingresos[parametros.cuenta_producto(prod, "cuenta_ingreso", params)] += it["subtotal"]
-        if it.get("inventariable"):
-            costo = it["cantidad"] * await inventario.costo_promedio(empresa_id, it["producto_id"], s)
-            clave = (parametros.cuenta_producto(prod, "cuenta_costo", params),
-                     parametros.cuenta_producto(prod, "cuenta_inventario", params))
-            costos[clave] += costo
-
     await inventario.registrar_movimientos(
         empresa_id, doc_tipo, doc_id, doc["numero"], doc["fecha"],
         [{"producto_id": it["producto_id"], "bodega_id": bodega_id, "tipo": "salida",
           "cantidad": it["cantidad"]} for it in doc["items"] if it.get("inventariable")],
         s,
     )
+    # El costo sale del kardex valorado a la fecha del documento (no del costo promedio de hoy).
+    costos_unitarios = await inventario.marcar_contabilizado(empresa_id, doc_tipo, doc_id, s)
+
+    ingresos: dict[str, float] = defaultdict(float)
+    costos: dict[tuple[str, str], float] = defaultdict(float)  # (cuenta costo, cuenta inventario)
+    for it in doc["items"]:
+        prod = productos.get(it.get("producto_id"))
+        ingresos[parametros.cuenta_producto(prod, "cuenta_ingreso", params)] += it["subtotal"]
+        if it.get("inventariable"):
+            costo = it["cantidad"] * costos_unitarios.get(it["producto_id"], 0.0)
+            clave = (parametros.cuenta_producto(prod, "cuenta_costo", params),
+                     parametros.cuenta_producto(prod, "cuenta_inventario", params))
+            costos[clave] += costo
 
     tercero = doc.get("cliente_id")
     ret = doc.get("retenciones") or {}
@@ -285,6 +287,8 @@ async def _validar_factura_modificable(empresa_id: str, factura: dict, s) -> Non
         {"empresa_id": empresa_id, "factura_id": fid, **NO_ANULADO}, session=s
     ):
         raise HTTPException(409, "La factura tiene notas crédito/débito: anúlalas primero")
+    if await db.aplicaciones_anticipo.find_one({"empresa_id": empresa_id, "documento_id": fid, **NO_ANULADO}, session=s):
+        raise HTTPException(409, "La factura tiene anticipos aplicados: anula primero la aplicación")
 
 
 @router.get("/facturas")

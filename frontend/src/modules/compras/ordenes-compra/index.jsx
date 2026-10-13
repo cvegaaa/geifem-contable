@@ -105,6 +105,17 @@ export default function Page() {
     }
   };
 
+  const cerrarOrden = async (o) => {
+    if (!window.confirm(`¿Cerrar ${numeroDoc(o)}? El proveedor no entregará lo pendiente y no se podrán registrar más entradas.`)) return;
+    try {
+      await api.post(`/api/compras/ordenes-compra/${o.id}/cerrar`, { motivo: "Cierre de la orden con entregas pendientes" });
+      setMensaje(`Orden ${numeroDoc(o)} cerrada`);
+      cargar();
+    } catch (err) {
+      setError(mensajeError(err));
+    }
+  };
+
   const columnas = [
     { key: "numero", label: "Número", render: (r) => <span className="font-medium">{numeroDoc(r)}</span> },
     { key: "fecha", label: "Fecha" },
@@ -115,6 +126,10 @@ export default function Page() {
       key: "_acciones",
       label: "",
       render: (r) => (
+        <div className="flex gap-3 items-center">
+        {["abierta", "parcial"].includes(r.estado) && puede("compras", "editar") && (
+          <button onClick={() => cerrarOrden(r)} className="text-xs text-slate-600 hover:underline">Cerrar</button>
+        )}
         <AccionesDocumento
           tipoDoc="orden_compra"
           doc={r}
@@ -124,6 +139,7 @@ export default function Page() {
           onAnular={(d) => anulacion.pedir(d, `/api/compras/ordenes-compra/${d.id}/anular`)}
           bloqueo={r.estado !== "abierta" && r.estado !== "anulado" ? "Ya tiene entradas o facturas asociadas" : null}
         />
+        </div>
       ),
     },
   ];

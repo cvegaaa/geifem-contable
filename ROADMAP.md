@@ -89,14 +89,20 @@ Hecho:
 - [x] **Formulario 300 (IVA)** reescrito: ventas por tarifa netas de notas crédito/débito, IVA descontable, ReteIVA sufrida y saldo a pagar o a favor.
 - [x] Dígito de verificación del NIT: se calcula y se valida en terceros y en la importación.
 - [x] Selector de cuentas con búsqueda por código o nombre.
-- [x] Pruebas automatizadas: 70 en verde.
+- [x] **Anticipos** de clientes (AC) y a proveedores (AD) con su aplicación a facturas (AA, sin mover efectivo), cuentas parametrizables (2805 / 1330), anulables; el estado de cuenta los muestra.
+- [x] **Cobro o pago de varias facturas** de un tercero en una sola operación (todo o nada) y **transferencias** entre cajas y bancos (TR), que no cuentan como ingreso ni egreso en el flujo de caja.
+- [x] **Régimen SIMPLE**: Formulario 2593 (anticipo bimestral) y 260 (declaración anual) calculados sobre los ingresos del libro, con tarifas por grupo de actividad editables por empresa (Configuración › Tarifas SIMPLE) y marca de «verificadas por el contador»; el descuento por aportes a pensión sale de la nómina.
+- [x] **Órdenes de compra con seguimiento**: estados abierta, parcial, recibida, facturada y cerrada; las entradas no pueden superar lo pendiente y la factura de proveedor solo cubre lo recibido de la orden.
+- [x] **Devoluciones a proveedor** (NP): reducen la deuda, sacan la mercancía del inventario y revierten el IVA descontable y las retenciones en la misma proporción.
+- [x] **Costo de venta retroactivo**: el costo sale del kardex valorado a la fecha del documento y, si una compra con fecha anterior o una edición cambia el costo promedio, queda un asiento de ajuste por la diferencia (se limpia al anular).
+- [x] **Facturas electrónicas recibidas**: carga del XML UBL 2.1 (o AttachedDocument) con CUFE único, validación del adquirente, eventos RADIAN (030, 031, 032, 033) con su secuencia, y contabilización como factura de proveedor ligada al CUFE. Los eventos quedan «pendientes de transmisión» hasta conectar el proveedor tecnológico.
+- [x] Pruebas automatizadas: 83 en verde.
 
 Pendiente:
 
-- [ ] Endurecer órdenes de compra, recepción, facturas de proveedor y retenciones.
-- [ ] Anticipos de clientes y proveedores, pagos que cubren varias facturas y transferencias entre cajas y bancos.
-- [ ] Recepción de facturas de proveedor (XML) y eventos RADIAN.
-- [ ] Para SIMPLE, formularios 260 y 2593 (hoy el 260 es un resumen de ingresos por mes).
+- [ ] Ajustes de inventario (faltantes) valorados por fecha como las ventas, y devoluciones a proveedor al costo promedio de la fecha.
+- [ ] Validar la lectura del XML con facturas reales de distintos proveedores (descuentos, cargos, retenciones en el XML, notas crédito recibidas) y la firma electrónica.
+- [ ] Eventos RADIAN: aceptación tácita, endoso y transmisión (depende de la capa de Alegra).
 
 ## Fase 3 — Capa de integración con Alegra (penúltima tarea) · ⚪ pendiente
 
@@ -167,7 +173,6 @@ Pendiente:
 
 Detectados en las revisiones; se resuelven en la fase indicada.
 
-- El costo de venta se fija al registrar la venta; si luego se registra una compra con fecha anterior, el kardex se recalcula pero el asiento de costo no → Fase 1.
 - La factura de proveedor no ingresa mercancía por sí sola: para que el kardex suba se registra la entrada de mercancía. Evaluar una opción "ingresar a bodega" en la misma factura para comercios pequeños → Fase 1.
 - ICA propio: se causa manualmente con un comprobante contable (decisión del cliente) → sin cambios.
 - Exógena 2276 (rentas de trabajo) y certificados de ingresos y retenciones salen de nómina → Nómina.
@@ -185,3 +190,4 @@ Detectados en las revisiones; se resuelven en la fase indicada.
 - **2026-10-13** — Impuestos completados (notas con retenciones prorrateadas, INC con su cuenta, reportes fiscales, saldos iniciales contabilizados, cuentas por concepto) y módulo de **nómina** (empleados, novedades, liquidación mensual/quincenal con asiento, pagos, prestaciones, PILA, liquidación de contrato, paquete mensual consolidado de nómina electrónica; transmisión a Alegra pendiente de su API). 48 pruebas en verde; flujo verificado en el navegador.
 - **2026-10-13 (cierre de la Fase 0)** — Límite de intentos de login, respaldo con restauración verificada, CI, CSP/HSTS y cambio de contraseña; cierre de periodos; redondeo exacto al centavo; vista imprimible, exportación e importación Excel, búsqueda y paginación, administración de usuarios y menú móvil. 65 pruebas en verde. Cambio de decisión: dinero con redondeo al centavo en lugar de `Decimal128`; paginación en el cliente por ahora. Orden acordado: funcionalidad general → detalle por módulo → capa de Alegra → agentes MCP. La revisión contable la hace el propietario.
 - **2026-10-13 (Fase 2, primer bloque)** — Cartera por edades y estado de cuenta, devoluciones con reingreso a inventario, Formulario 300 reescrito, DV del NIT y selector de cuentas con búsqueda. 70 pruebas en verde.
+- **2026-10-13 (Fase 2, segundo bloque)** — Anticipos, cobros y pagos múltiples, transferencias, formularios SIMPLE 2593 y 260 con tarifas editables, seguimiento de órdenes de compra, devoluciones a proveedor, ajuste retroactivo del costo de venta y facturas electrónicas recibidas con eventos RADIAN. 83 pruebas en verde. Las tarifas SIMPLE son de referencia y requieren verificación del contador.

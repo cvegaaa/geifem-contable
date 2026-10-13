@@ -11,6 +11,7 @@ export const EMPRESA_VACIA = {
   telefono: "",
   email: "",
   actividad_ciiu: "",
+  grupo_simple: 2,
   gran_contribuyente: false,
   agente_retenedor: true,
   agente_reteiva: true,
@@ -117,6 +118,19 @@ export default function EmpresaForm({ value, onChange, disabled = false }) {
           Responsable de IVA
         </label>
       </div>
+      {simple && (
+        <div className="sm:col-span-6">
+          <FormField label="Grupo de actividad SIMPLE" hint="Define la tarifa consolidada del Formulario 2593 y del 260">
+            <Select value={value.grupo_simple || 2} disabled={disabled} onChange={(e) => set("grupo_simple", Number(e.target.value))}>
+              <option value={1}>1 · Tiendas pequeñas, mini-mercados, micro-mercados y peluquería</option>
+              <option value={2}>2 · Comercio, servicios técnicos y mecánicos, industria y demás</option>
+              <option value={3}>3 · Servicios profesionales, de consultoría y científicos</option>
+              <option value={4}>4 · Comidas y bebidas, y transporte</option>
+              <option value={5}>5 · Educación y salud humana</option>
+            </Select>
+          </FormField>
+        </div>
+      )}
       <div className="sm:col-span-3">
         <FormField label="Ciudad">
           <Input value={value.ciudad || ""} disabled={disabled} onChange={(e) => set("ciudad", e.target.value)} />

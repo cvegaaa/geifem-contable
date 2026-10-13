@@ -43,7 +43,7 @@ export default function Page() {
         api.get("/api/inventario/bodegas"),
       ]);
       setRecepciones(re.data);
-      setOrdenes(oc.data.filter((o) => o.estado !== "anulado"));
+      setOrdenes(oc.data.filter((o) => !["anulado", "cerrada", "facturada"].includes(o.estado)));
       setProductos(pr.data);
       setBodegas(bo.data);
     } catch (err) {
@@ -74,13 +74,22 @@ export default function Page() {
     setLineas(doc ? itemsAFormulario(doc.items) : [lineaCompraVacia()]);
   };
 
-  const cargarDesdeOrden = (id) => {
+  // Al elegir una orden se cargan solo las cantidades que aún están pendientes de recibir.
+  const cargarDesdeOrden = async (id) => {
     setOrdenId(id);
     const oc = ordenes.find((o) => o.id === id);
     if (!oc) return;
     if (oc.bodega_id) setBodegaId(oc.bodega_id);
-    const items = itemsAFormulario((oc.items || []).filter((it) => it.producto_id));
-    if (items.length) setLineas(items);
+    try {
+      const { data } = await api.get(`/api/compras/ordenes-compra/${id}/pendiente`);
+      const items = data
+        .filter((f) => f.pendiente > 0)
+        .map((f) => ({ ...lineaCompraVacia(), producto_id: f.producto_id, descripcion: f.descripcion, cantidad: f.pendiente, costo_unitario: f.costo_unitario, tarifa_iva: 0 }));
+      if (items.length) setLineas(items);
+      else setError("La orden no tiene mercancía pendiente de recibir");
+    } catch (err) {
+      setError(mensajeError(err));
+    }
   };
 
   const guardar = async () => {

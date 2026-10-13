@@ -19,10 +19,12 @@ from datetime import date
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core import simple
 from core.auth.dependencies import get_empresa_activa, require_permiso
 from core.documentos import NO_ANULADO
 from db import get_db
 from core.dinero import redondear
+from core.retenciones import valor_uvt
 
 router = APIRouter(prefix="/api/reportes", tags=["reportes"])
 
@@ -92,7 +94,8 @@ CATALOGO = [
             {"slug": "impuestos-y-retenciones", "titulo": "Impuestos y retenciones", "descripcion": "Revisa los impuestos y retenciones asociados a tus ventas y compras.", "estado": "activo"},
             {"slug": "comprobante-informe-diario", "titulo": "Comprobante de informe diario", "descripcion": "Exporta el resumen de tus facturas registradas en tu punto de venta.", "estado": "activo", "exporta": "Excel"},
             {"slug": "form-300-iva", "titulo": "Formulario 300 — IVA", "descripcion": "Declaración bimestral/cuatrimestral del impuesto sobre las ventas.", "estado": "activo"},
-            {"slug": "form-260-simple", "titulo": "Formulario 260 — SIMPLE", "descripcion": "Recibo electrónico del régimen simple de tributación.", "estado": "activo"},
+            {"slug": "form-260-simple", "titulo": "Formulario 260 — SIMPLE anual", "descripcion": "Declaración anual consolidada del régimen SIMPLE de tributación.", "estado": "activo"},
+            {"slug": "form-2593-simple", "titulo": "Formulario 2593 — SIMPLE bimestral", "descripcion": "Recibo electrónico SIMPLE: anticipo bimestral sobre los ingresos del bimestre.", "estado": "activo"},
             {"slug": "formulario-350", "titulo": "Formulario 350", "descripcion": "Declaración retenciones en la fuente.", "estado": "activo"},
             {"slug": "calendario-tributario", "titulo": "Calendario tributario", "descripcion": "Consulta las fechas límite de tus obligaciones fiscales según tu NIT y régimen.", "estado": "activo", "ruta": "/reportes/calendario-tributario"},
         ],
@@ -611,19 +614,96 @@ async def r_form_300_iva(empresa_id, desde, hasta):
     )
 
 
+async def _ingresos_simple(empresa_id, desde, hasta) -> float:
+    """Ingresos brutos del periodo según el libro (clase 4, netos de devoluciones y descuentos)."""
+    acc = await _saldos_por_cuenta(empresa_id, desde, hasta)
+    return sum(v["credito"] - v["debito"] for (codigo, _), v in acc.items() if codigo.startswith("4"))
+
+
+async def _pension_empleador(empresa_id, desde, hasta) -> float:
+    """Aportes a pensión a cargo del empleador liquidados en nómina (descuento del art. 903 ET)."""
+    total = 0.0
+    async for per in get_db().nomina_periodos.find(
+        {"empresa_id": empresa_id, **NO_ANULADO, "fecha_fin": {"$gte": desde, "$lte": hasta}}
+    ):
+        total += sum(float((l.get("aportes_empleador") or {}).get("pension", 0)) for l in per.get("lineas", []))
+    return total
+
+
+async def _contexto_simple(empresa_id):
+    empresa = await get_db().empresas.find_one({"_id": ObjectId(empresa_id)}) or {}
+    tarifas = await simple.obtener(empresa_id)
+    grupo = str(empresa.get("grupo_simple") or 2)
+    return empresa, tarifas, tarifas["grupos"][grupo], grupo
+
+
+def _aviso_simple(empresa, tarifas, grupo):
+    avisos = []
+    if empresa.get("regimen_tributario") != "SIMPLE":
+        avisos.append("La empresa no está en el régimen SIMPLE: este formulario es solo informativo.")
+    if not tarifas["verificado"]:
+        avisos.append("Las tarifas no están marcadas como verificadas: confírmalas con tu contador (Configuración › Tarifas SIMPLE).")
+    return " ".join(avisos) or None
+
+
+async def r_form_2593_simple(empresa_id, desde, hasta):
+    """Recibo electrónico SIMPLE: anticipo bimestral = ingresos del bimestre × tarifa del tramo acumulado del año."""
+    anio, mes = int(hasta[:4]), int(hasta[5:7])
+    bim = (mes - 1) // 2
+    ini_bim, fin_bim = f"{anio}-{bim * 2 + 1:02d}-01", hasta
+    empresa, tarifas, grupo, nombre_grupo = await _contexto_simple(empresa_id)
+    uvt = valor_uvt(anio)
+    ingresos_bim = await _ingresos_simple(empresa_id, ini_bim, fin_bim)
+    acumulado = await _ingresos_simple(empresa_id, f"{anio}-01-01", fin_bim)
+    tarifa, en_uvt = simple.tarifa_para(grupo, acumulado, uvt)
+    anticipo = ingresos_bim * tarifa / 100
+    pension = await _pension_empleador(empresa_id, ini_bim, fin_bim)
+    a_pagar = max(anticipo - pension, 0)
+    filas = [
+        {"concepto": f"Bimestre {bim + 1} de {anio}", "valor": None},
+        {"concepto": "Grupo de actividad", "valor": f"{nombre_grupo} — {grupo['nombre']}"},
+        {"concepto": "Ingresos brutos del bimestre", "valor": redondear(ingresos_bim, 2)},
+        {"concepto": f"Ingresos brutos acumulados del año ({en_uvt:,.0f} UVT)", "valor": redondear(acumulado, 2)},
+        {"concepto": "Tarifa SIMPLE consolidada aplicable (%)", "valor": tarifa},
+        {"concepto": "Anticipo bimestral", "valor": redondear(anticipo, 2)},
+        {"concepto": "(-) Descuento por aportes a pensión del empleador", "valor": redondear(pension, 2)},
+        {"concepto": "Valor a pagar", "valor": redondear(a_pagar, 2)},
+    ]
+    return _tabla([{"key": "concepto", "label": "Concepto"}, {"key": "valor", "label": "Valor"}], filas,
+                  {"ingresos_bimestre": redondear(ingresos_bim, 2), "tarifa": tarifa, "anticipo": redondear(anticipo, 2),
+                   "valor_a_pagar": redondear(a_pagar, 2), "advertencia": _aviso_simple(empresa, tarifas, grupo)})
+
+
 async def r_form_260_simple(empresa_id, desde, hasta):
-    docs = await _facturas(empresa_id, desde, hasta) + await _pos(empresa_id, desde, hasta)
-    acc = defaultdict(lambda: {"documentos": 0, "ingresos": 0.0})
-    for d in docs:
-        mes = (d.get("fecha") or "")[:7]
-        acc[mes]["documentos"] += 1
-        acc[mes]["ingresos"] += d.get("total", 0)
-    filas = [{"periodo": k, "documentos": v["documentos"], "ingresos": redondear(v["ingresos"], 2)}
-             for k, v in sorted(acc.items())]
+    """Declaración anual consolidada SIMPLE: impuesto del año menos anticipos bimestrales y descuento por pensión."""
+    anio = int(desde[:4])
+    empresa, tarifas, grupo, nombre_grupo = await _contexto_simple(empresa_id)
+    uvt = valor_uvt(anio)
+    ultimos = {1: "02-28", 2: "04-30", 3: "06-30", 4: "08-31", 5: "10-31", 6: "12-31"}
+    filas, acumulado, anticipos = [], 0.0, 0.0
+    for b in range(1, 7):
+        ini, fin = f"{anio}-{b * 2 - 1:02d}-01", f"{anio}-{ultimos[b]}"
+        ing = await _ingresos_simple(empresa_id, ini, fin)
+        acumulado += ing
+        tarifa, _ = simple.tarifa_para(grupo, acumulado, uvt)
+        ant = ing * tarifa / 100
+        anticipos += ant
+        filas.append({"periodo": f"Bimestre {b}", "ingresos": redondear(ing, 2), "acumulado": redondear(acumulado, 2),
+                      "tarifa": tarifa, "anticipo": redondear(ant, 2)})
+    tarifa_anual, en_uvt = simple.tarifa_para(grupo, acumulado, uvt)
+    impuesto = acumulado * tarifa_anual / 100
+    pension = await _pension_empleador(empresa_id, f"{anio}-01-01", f"{anio}-12-31")
+    saldo = impuesto - pension - anticipos
     return _tabla(
-        [{"key": "periodo", "label": "Periodo"}, {"key": "documentos", "label": "Documentos"},
-         {"key": "ingresos", "label": "Ingresos brutos"}],
-        filas, {"ingresos_brutos": redondear(sum(f["ingresos"] for f in filas), 2)},
+        [{"key": "periodo", "label": "Periodo"}, {"key": "ingresos", "label": "Ingresos del bimestre"},
+         {"key": "acumulado", "label": "Acumulado"}, {"key": "tarifa", "label": "Tarifa %"},
+         {"key": "anticipo", "label": "Anticipo bimestral"}],
+        filas,
+        {"anio": anio, "grupo": f"{nombre_grupo} — {grupo['nombre']}", "ingresos_brutos_anuales": redondear(acumulado, 2),
+         "ingresos_en_uvt": redondear(en_uvt, 0), "tarifa_anual": tarifa_anual, "impuesto_consolidado": redondear(impuesto, 2),
+         "descuento_pension_empleador": redondear(pension, 2), "anticipos_bimestrales": redondear(anticipos, 2),
+         "saldo_a_pagar": redondear(max(saldo, 0), 2), "saldo_a_favor": redondear(max(-saldo, 0), 2),
+         "advertencia": _aviso_simple(empresa, tarifas, grupo)},
     )
 
 
@@ -1073,6 +1153,7 @@ GENERADORES = {
     ("fiscales", "comprobante-informe-diario"): r_comprobante_informe_diario,
     ("fiscales", "form-300-iva"): r_form_300_iva,
     ("fiscales", "form-260-simple"): r_form_260_simple,
+    ("fiscales", "form-2593-simple"): r_form_2593_simple,
     ("administrativos", "cuentas-por-pagar"): r_cuentas_por_pagar,
     ("administrativos", "compras"): r_compras,
     ("financieros", "flujo-de-caja"): r_flujo_de_caja,

@@ -380,7 +380,13 @@ async def estado_cuenta(
         pagos.append({"id": str(p["_id"]), "numero": p.get("numero"), "fecha": p.get("fecha"),
                       "documento": p.get("documento_numero"), "valor": redondear(float(p.get("valor", 0)), 2)})
     tercero = await db.terceros.find_one({"_id": oid(tercero_id, "tercero_id"), "empresa_id": empresa_id})
+    anticipos = [
+        {"id": str(a["_id"]), "numero": a.get("numero"), "fecha": a.get("fecha"), "valor": a.get("valor"), "saldo": a.get("saldo")}
+        async for a in db.anticipos.find({"empresa_id": empresa_id, "tercero_id": tercero_id,
+                                           "tipo": "cliente" if es_cxc else "proveedor", "saldo": {"$gt": 0.009}, **NO_ANULADO})
+    ]
     return {
+        "anticipos_disponibles": anticipos,
         "tipo": tipo, "tercero": (tercero or {}).get("nombre", ""), "documento": (tercero or {}).get("numero_documento", ""),
         "facturas": facturas, "pagos": pagos,
         "resumen": {"facturado": redondear(total, 2), "pagado": redondear(total - saldo, 2), "saldo": redondear(saldo, 2)},
@@ -499,30 +505,70 @@ async def listar_pagos(
     return [serializar(d) async for d in cursor]
 
 
+async def _crear_pago(empresa_id: str, datos: dict, usuario_id: str, s, extra: dict | None = None):
+    """Numera, guarda y aplica un recibo de caja (cxc) o comprobante de egreso (cxp)."""
+    db = get_db()
+    prefijo = "RC" if datos["documento_tipo"] == "cxc" else "CE"
+    consecutivo = await siguiente_consecutivo(empresa_id, f"pago:{prefijo}", s)
+    doc = {**datos, **(extra or {}), "empresa_id": empresa_id, "prefijo": prefijo,
+           "consecutivo": consecutivo, "numero": formatear_numero(prefijo, consecutivo),
+           "estado": "registrado", "creado_por": usuario_id, "fecha_creacion": ahora()}
+    doc["referencia"] = doc["numero"]
+    res = await db.pagos.insert_one(doc, session=s)
+    pid = str(res.inserted_id)
+    info = await _aplicar_pago(empresa_id, pid, doc, usuario_id, s)
+    await db.pagos.update_one({"_id": res.inserted_id}, {"$set": info}, session=s)
+    await auditar(empresa_id, PAGO, pid, doc["numero"], usuario_id, "creado", s)
+    return res.inserted_id
+
+
 @tesoreria.post("/pagos", status_code=201)
 async def registrar_pago(
     payload: PagoCrear,
     empresa_id: str = Depends(get_empresa_activa),
     usuario: dict = Depends(require_permiso("tesoreria", "crear")),
 ):
-    db = get_db()
+    nuevo = await en_transaccion(lambda s: _crear_pago(empresa_id, payload.model_dump(), usuario["id"], s))
+    return serializar(await get_db().pagos.find_one({"_id": nuevo}))
+
+
+class AplicacionPago(BaseModel):
+    documento_id: str
+    valor: float = Field(gt=0)
+
+
+class PagoMultiple(BaseModel):
+    documento_tipo: Literal["cxc", "cxp"]
+    cuenta_tipo: Literal["caja", "banco"]
+    cuenta_id: str
+    fecha: str
+    observaciones: str | None = None
+    aplicaciones: list[AplicacionPago] = Field(min_length=1, max_length=100)
+
+
+@tesoreria.post("/pagos/multiple", status_code=201)
+async def registrar_pago_multiple(
+    payload: PagoMultiple,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("tesoreria", "crear")),
+):
+    """Un mismo pago o recaudo que cubre varias facturas: genera un recibo por factura, ligados por `lote`."""
+    ids = [a.documento_id for a in payload.aplicaciones]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, "Una factura no puede repetirse en el mismo pago")
 
     async def _tx(s):
-        prefijo = "RC" if payload.documento_tipo == "cxc" else "CE"
-        consecutivo = await siguiente_consecutivo(empresa_id, f"pago:{prefijo}", s)
-        doc = {**payload.model_dump(), "empresa_id": empresa_id, "prefijo": prefijo,
-               "consecutivo": consecutivo, "numero": formatear_numero(prefijo, consecutivo),
-               "estado": "registrado", "creado_por": usuario["id"], "fecha_creacion": ahora()}
-        doc["referencia"] = doc["numero"]
-        res = await db.pagos.insert_one(doc, session=s)
-        pid = str(res.inserted_id)
-        info = await _aplicar_pago(empresa_id, pid, doc, usuario["id"], s)
-        await db.pagos.update_one({"_id": res.inserted_id}, {"$set": info}, session=s)
-        await auditar(empresa_id, PAGO, pid, doc["numero"], usuario["id"], "creado", s)
-        return res.inserted_id
+        lote = ahora().strftime("%Y%m%d%H%M%S%f")
+        nuevos = []
+        for a in payload.aplicaciones:
+            datos = {"documento_tipo": payload.documento_tipo, "documento_id": a.documento_id,
+                     "cuenta_tipo": payload.cuenta_tipo, "cuenta_id": payload.cuenta_id,
+                     "fecha": payload.fecha, "valor": a.valor, "observaciones": payload.observaciones}
+            nuevos.append(await _crear_pago(empresa_id, datos, usuario["id"], s, {"lote": lote}))
+        return nuevos
 
-    nuevo = await en_transaccion(_tx)
-    return serializar(await db.pagos.find_one({"_id": nuevo}))
+    nuevos = await en_transaccion(_tx)
+    return [serializar(d) async for d in get_db().pagos.find({"_id": {"$in": nuevos}}).sort("consecutivo", 1)]
 
 
 @tesoreria.put("/pagos/{pid}")
@@ -584,7 +630,7 @@ async def flujo_caja(
     db = get_db()
     por_dia: dict[str, dict[str, float]] = defaultdict(lambda: {"ingresos": 0.0, "egresos": 0.0})
     async for m in db.movimientos_tesoreria.find(
-        {"empresa_id": empresa_id, "fecha": {"$gte": desde, "$lte": hasta}, **NO_ANULADO}
+        {"empresa_id": empresa_id, "fecha": {"$gte": desde, "$lte": hasta}, "origen": {"$ne": "transferencia"}, **NO_ANULADO}
     ):
         clave = "ingresos" if m["tipo"] == "ingreso" else "egresos"
         por_dia[m["fecha"]][clave] += float(m.get("valor", 0))
@@ -776,6 +822,10 @@ async def confirmar_conciliacion(
 
 
 
+# Anticipos y transferencias (documentos propios de tesorería).
+from api.tesoreria import anticipos  # noqa: E402
+
+tesoreria.include_router(anticipos.router)
 router.include_router(tesoreria)
 
 
@@ -906,3 +956,4 @@ def _router_cuentas(tipo: str, prefijo: str) -> APIRouter:
 
 router.include_router(_router_cuentas("caja", "/api/tesoreria/cuentas-caja"))
 router.include_router(_router_cuentas("banco", "/api/tesoreria/cuentas-bancarias"))
+

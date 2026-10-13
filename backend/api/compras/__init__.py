@@ -72,23 +72,53 @@ async def _proveedor(empresa_id: str, proveedor_id: str, s) -> dict:
     return doc
 
 
+async def _recibido_por_producto(empresa_id: str, orden_id: str, s, excluir_recepcion=None) -> dict[str, float]:
+    recibido: dict[str, float] = {}
+    filtro = {"empresa_id": empresa_id, "orden_compra_id": orden_id, **NO_ANULADO}
+    if excluir_recepcion is not None:
+        filtro["_id"] = {"$ne": excluir_recepcion}
+    async for r in get_db().recepciones_mercancia.find(filtro, session=s):
+        for it in r.get("items", []):
+            recibido[it["producto_id"]] = recibido.get(it["producto_id"], 0.0) + float(it["cantidad"])
+    return recibido
+
+
+async def pendiente_orden(empresa_id: str, orden: dict, s=None, excluir_recepcion=None) -> list[dict]:
+    """Por producto de la orden: cantidad pedida, recibida y pendiente (los servicios no se reciben)."""
+    recibido = await _recibido_por_producto(empresa_id, str(orden["_id"]), s, excluir_recepcion)
+    pedido: dict[str, dict] = {}
+    for it in orden.get("items", []):
+        if not it.get("producto_id"):
+            continue
+        fila = pedido.setdefault(it["producto_id"], {"producto_id": it["producto_id"], "descripcion": it.get("descripcion", ""),
+                                                     "pedido": 0.0, "costo_unitario": it["costo_unitario"]})
+        fila["pedido"] += float(it["cantidad"])
+    for pid, fila in pedido.items():
+        fila["recibido"] = redondear(recibido.get(pid, 0.0), 6)
+        fila["pendiente"] = redondear(max(fila["pedido"] - fila["recibido"], 0.0), 6)
+    return list(pedido.values())
+
+
 async def _actualizar_estado_orden(empresa_id: str, orden_id: str | None, s) -> None:
-    """abierta -> recibida -> facturada, según los documentos activos que la usan."""
+    """abierta -> parcial -> recibida -> facturada (o cerrada a mano), según los documentos activos que la usan."""
     if not orden_id:
         return
     db = get_db()
+    orden = await db.ordenes_compra.find_one(
+        {"_id": oid(orden_id, "orden_compra_id"), "empresa_id": empresa_id, **NO_ANULADO}, session=s)
+    if not orden:
+        return
     filtro = {"empresa_id": empresa_id, "orden_compra_id": orden_id, **NO_ANULADO}
     if await db.facturas_proveedor.find_one(filtro, session=s):
         estado = "facturada"
+    elif orden.get("cerrada"):
+        estado = "cerrada"
     elif await db.recepciones_mercancia.find_one(filtro, session=s):
-        estado = "recibida"
+        filas = await pendiente_orden(empresa_id, orden, s)
+        estado = "recibida" if filas and all(f["pendiente"] <= 1e-9 for f in filas) else "parcial"
     else:
         estado = "abierta"
-    await db.ordenes_compra.update_one(
-        {"_id": oid(orden_id, "orden_compra_id"), "empresa_id": empresa_id, **NO_ANULADO},
-        {"$set": {"estado": estado}},
-        session=s,
-    )
+    await db.ordenes_compra.update_one({"_id": orden["_id"]}, {"$set": {"estado": estado}}, session=s)
 
 
 async def _validar_orden(empresa_id: str, orden_id: str | None, s) -> None:
@@ -207,6 +237,43 @@ async def anular_orden(
     return serializar(await db.ordenes_compra.find_one({"_id": oid(oc_id)}))
 
 
+@compras.get("/ordenes-compra/{oc_id}/pendiente")
+async def pendiente_de_orden(
+    oc_id: str,
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("compras", "leer")),
+):
+    """Cantidades pedidas, recibidas y pendientes de cada producto de la orden."""
+    orden = await get_db().ordenes_compra.find_one({"_id": oid(oc_id), "empresa_id": empresa_id})
+    if not orden:
+        raise HTTPException(404, "Orden no encontrada")
+    return await pendiente_orden(empresa_id, orden)
+
+
+@compras.post("/ordenes-compra/{oc_id}/cerrar")
+async def cerrar_orden(
+    oc_id: str,
+    payload: Anulacion | None = None,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("compras", "editar")),
+):
+    """Cierra una orden con entregas pendientes (el proveedor no enviará el resto)."""
+    db = get_db()
+
+    async def _tx(s):
+        orden = await cargar_editable("ordenes_compra", empresa_id, oc_id, s)
+        if orden["estado"] not in ("parcial", "abierta"):
+            raise HTTPException(409, "Solo se cierran órdenes abiertas o con entregas parciales")
+        await db.ordenes_compra.update_one(
+            {"_id": orden["_id"]},
+            {"$set": {"cerrada": True, "estado": "cerrada", "motivo_cierre": payload.motivo if payload else None}}, session=s)
+        await auditar(empresa_id, "orden_compra", oc_id, orden["numero"], usuario["id"], "cerrado", s,
+                      {"motivo": payload.motivo if payload else None})
+
+    await en_transaccion(_tx)
+    return serializar(await db.ordenes_compra.find_one({"_id": oid(oc_id)}))
+
+
 # ---------------------------------------------------------------------------
 # Entrada de mercancía (suma existencias y recalcula el costo promedio)
 # ---------------------------------------------------------------------------
@@ -228,7 +295,7 @@ class RecepcionCrear(BaseModel):
 RECEPCION = "recepcion"
 
 
-async def _armar_recepcion(empresa_id: str, payload: RecepcionCrear, s) -> dict:
+async def _armar_recepcion(empresa_id: str, payload: RecepcionCrear, s, excluir_id=None) -> dict:
     db = get_db()
     bodega = await db.bodegas.find_one(
         {"_id": oid(payload.bodega_id, "bodega_id"), "empresa_id": empresa_id}, session=s
@@ -236,6 +303,20 @@ async def _armar_recepcion(empresa_id: str, payload: RecepcionCrear, s) -> dict:
     if not bodega:
         raise HTTPException(404, "Bodega no encontrada")
     await _validar_orden(empresa_id, payload.orden_compra_id, s)
+    if payload.orden_compra_id:
+        orden = await db.ordenes_compra.find_one({"_id": oid(payload.orden_compra_id), "empresa_id": empresa_id}, session=s)
+        if orden.get("cerrada") and (excluir_id is None):
+            raise HTTPException(409, "La orden de compra está cerrada: no admite más entradas")
+        pendientes = {f["producto_id"]: f for f in await pendiente_orden(empresa_id, orden, s, excluir_recepcion=excluir_id)}
+        pedidas: dict[str, float] = {}
+        for it in payload.items:
+            pedidas[it.producto_id] = pedidas.get(it.producto_id, 0.0) + it.cantidad
+        for pid, cant in pedidas.items():
+            if pid not in pendientes:
+                raise HTTPException(409, "Ese producto no está en la orden de compra")
+            if cant > pendientes[pid]["pendiente"] + 1e-9:
+                raise HTTPException(409, f"Se recibe más de lo pendiente de «{pendientes[pid]['descripcion'] or pid}» "
+                                         f"(pendiente {pendientes[pid]['pendiente']:g})")
     lineas, valor_total = [], 0.0
     for it in payload.items:
         prod = await db.productos.find_one(
@@ -317,7 +398,7 @@ async def editar_recepcion(
         existente = await cargar_editable("recepciones_mercancia", empresa_id, rid, s)
         await borrar_asientos(empresa_id, RECEPCION, rid, s)
         previos = await inventario.borrar_movimientos(empresa_id, RECEPCION, rid, s, recalcular_despues=False)
-        doc = await _armar_recepcion(empresa_id, payload, s)
+        doc = await _armar_recepcion(empresa_id, payload, s, excluir_id=existente["_id"])
         doc.update({**campos_conservados(existente), "editado_por": usuario["id"], "fecha_actualizacion": ahora()})
         await db.recepciones_mercancia.replace_one({"_id": existente["_id"]}, doc, session=s)
         await _aplicar_recepcion(empresa_id, rid, doc, s)
@@ -394,6 +475,28 @@ async def _armar_factura_proveedor(
         if await db.facturas_proveedor.find_one(duplicada, session=s):
             raise HTTPException(409, f"Ya registraste la factura {payload.numero_factura} de este proveedor")
 
+    if payload.orden_compra_id and payload.afecta_inventario:
+        # Solo se factura la mercancía ya recibida de esa orden (menos lo facturado en otras facturas).
+        recibido = await _recibido_por_producto(empresa_id, payload.orden_compra_id, s)
+        facturado: dict[str, float] = {}
+        filtro = {"empresa_id": empresa_id, "orden_compra_id": payload.orden_compra_id,
+                  "afecta_inventario": True, **NO_ANULADO}
+        if excluir_id is not None:
+            filtro["_id"] = {"$ne": excluir_id}
+        async for f in db.facturas_proveedor.find(filtro, session=s):
+            for it in f.get("items", []):
+                if it.get("producto_id"):
+                    facturado[it["producto_id"]] = facturado.get(it["producto_id"], 0.0) + float(it["cantidad"])
+        pedidas: dict[str, float] = {}
+        for it in payload.items:
+            if it.producto_id:
+                pedidas[it.producto_id] = pedidas.get(it.producto_id, 0.0) + it.cantidad
+        for pid, cant in pedidas.items():
+            if cant + facturado.get(pid, 0.0) > recibido.get(pid, 0.0) + 1e-9:
+                raise HTTPException(409, "Estás facturando más mercancía de la recibida de esa orden "
+                                         f"(recibida {recibido.get(pid, 0.0):g}, ya facturada {facturado.get(pid, 0.0):g}): "
+                                         "registra primero la entrada de mercancía")
+
     _, cap = await impuestos.empresa_y_capacidades(empresa_id, s)
     if not cap["cobra_iva"]:
         # No responsable de IVA: el IVA pagado no es descontable, se suma al costo o gasto.
@@ -460,6 +563,10 @@ async def _aplicar_factura_proveedor(empresa_id: str, fid: str, doc: dict, s) ->
 async def _validar_sin_pagos(empresa_id: str, fid: str, s) -> None:
     if await get_db().pagos.find_one({"empresa_id": empresa_id, "documento_id": fid, **NO_ANULADO}, session=s):
         raise HTTPException(409, "La factura tiene pagos registrados: anúlalos primero")
+    if await get_db().devoluciones_proveedor.find_one({"empresa_id": empresa_id, "factura_id": fid, **NO_ANULADO}, session=s):
+        raise HTTPException(409, "La factura tiene devoluciones a proveedor: anúlalas primero")
+    if await get_db().aplicaciones_anticipo.find_one({"empresa_id": empresa_id, "documento_id": fid, **NO_ANULADO}, session=s):
+        raise HTTPException(409, "La factura tiene anticipos aplicados: anula primero la aplicación")
 
 
 @compras.post("/facturas-proveedor/previsualizar")
@@ -483,28 +590,28 @@ async def listar_facturas_proveedor(
     return [serializar(d) async for d in cursor]
 
 
+async def crear_factura_proveedor_doc(empresa_id: str, payload: FacturaProveedorCrear, usuario_id: str, s, extra: dict | None = None):
+    """Numera, guarda y contabiliza una factura de proveedor dentro de la transacción `s`."""
+    db = get_db()
+    doc = await _armar_factura_proveedor(empresa_id, payload, s)
+    consecutivo = await siguiente_consecutivo(empresa_id, "factura_proveedor", s)
+    doc.update({**(extra or {}), "empresa_id": empresa_id, "prefijo": "FP", "consecutivo": consecutivo,
+                "numero": formatear_numero("FP", consecutivo), "creado_por": usuario_id, "fecha_creacion": ahora()})
+    res = await db.facturas_proveedor.insert_one(doc, session=s)
+    fid = str(res.inserted_id)
+    await _aplicar_factura_proveedor(empresa_id, fid, doc, s)
+    await auditar(empresa_id, FACT_PROV, fid, doc["numero"], usuario_id, "creado", s)
+    return res.inserted_id
+
+
 @compras.post("/facturas-proveedor", status_code=201)
 async def crear_factura_proveedor(
     payload: FacturaProveedorCrear,
     empresa_id: str = Depends(get_empresa_activa),
     usuario: dict = Depends(require_permiso("compras", "crear")),
 ):
-    db = get_db()
-
-    async def _tx(s):
-        doc = await _armar_factura_proveedor(empresa_id, payload, s)
-        consecutivo = await siguiente_consecutivo(empresa_id, "factura_proveedor", s)
-        doc.update({"empresa_id": empresa_id, "prefijo": "FP", "consecutivo": consecutivo,
-                    "numero": formatear_numero("FP", consecutivo),
-                    "creado_por": usuario["id"], "fecha_creacion": ahora()})
-        res = await db.facturas_proveedor.insert_one(doc, session=s)
-        fid = str(res.inserted_id)
-        await _aplicar_factura_proveedor(empresa_id, fid, doc, s)
-        await auditar(empresa_id, FACT_PROV, fid, doc["numero"], usuario["id"], "creado", s)
-        return res.inserted_id
-
-    nuevo = await en_transaccion(_tx)
-    return serializar(await db.facturas_proveedor.find_one({"_id": nuevo}))
+    nuevo = await en_transaccion(lambda s: crear_factura_proveedor_doc(empresa_id, payload, usuario["id"], s))
+    return serializar(await get_db().facturas_proveedor.find_one({"_id": nuevo}))
 
 
 @compras.put("/facturas-proveedor/{fid}")
@@ -551,11 +658,193 @@ async def anular_factura_proveedor(
             session=s,
         )
         await _actualizar_estado_orden(empresa_id, existente.get("orden_compra_id"), s)
+        await db.facturas_recibidas.update_many(
+            {"empresa_id": empresa_id, "factura_proveedor_id": fid},
+            {"$set": {"factura_proveedor_id": None, "contabilizada": False}}, session=s)
         await auditar(empresa_id, FACT_PROV, fid, existente["numero"], usuario["id"], "anulado", s,
                       {"motivo": payload.motivo})
 
     await en_transaccion(_tx)
     return serializar(await db.facturas_proveedor.find_one({"_id": oid(fid)}))
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones a proveedor (nota crédito del proveedor)
+# ---------------------------------------------------------------------------
+
+DEV_PROV = "devolucion_proveedor"
+
+
+class ItemDevolucion(BaseModel):
+    producto_id: str | None = None
+    descripcion: str = Field(min_length=1)
+    cantidad: float = Field(gt=0)
+    costo_unitario: float = Field(ge=0)
+    tarifa_iva: float = Field(default=0, ge=0, le=100)
+
+
+class DevolucionProveedorCrear(BaseModel):
+    factura_id: str
+    fecha: str
+    motivo: str = Field(min_length=1)
+    bodega_id: str | None = None
+    items: list[ItemDevolucion] = Field(min_length=1)
+
+
+async def _armar_devolucion(empresa_id: str, payload: DevolucionProveedorCrear, s, excluir_id=None) -> tuple[dict, dict]:
+    db = get_db()
+    factura = await db.facturas_proveedor.find_one(
+        {"_id": oid(payload.factura_id, "factura_id"), "empresa_id": empresa_id, **NO_ANULADO}, session=s)
+    if not factura:
+        raise HTTPException(404, "Factura de proveedor no encontrada o anulada")
+    facturado: dict[str, float] = {}
+    for it in factura.get("items", []):
+        if it.get("producto_id"):
+            facturado[it["producto_id"]] = facturado.get(it["producto_id"], 0.0) + float(it["cantidad"])
+    devuelto: dict[str, float] = {}
+    filtro = {"empresa_id": empresa_id, "factura_id": payload.factura_id, **NO_ANULADO}
+    if excluir_id is not None:
+        filtro["_id"] = {"$ne": excluir_id}
+    async for d in db.devoluciones_proveedor.find(filtro, session=s):
+        for it in d.get("items", []):
+            if it.get("producto_id"):
+                devuelto[it["producto_id"]] = devuelto.get(it["producto_id"], 0.0) + float(it["cantidad"])
+    pedido: dict[str, float] = {}
+    for it in payload.items:
+        if it.producto_id:
+            if it.producto_id not in facturado:
+                raise HTTPException(409, f"«{it.descripcion}» no está en la factura del proveedor")
+            pedido[it.producto_id] = pedido.get(it.producto_id, 0.0) + it.cantidad
+    for pid, cant in pedido.items():
+        if cant + devuelto.get(pid, 0.0) > facturado[pid] + 1e-9:
+            raise HTTPException(409, f"Devuelves más de lo facturado (facturadas {facturado[pid]:g}, "
+                                     f"ya devueltas {devuelto.get(pid, 0.0):g})")
+
+    cap = (await impuestos.empresa_y_capacidades(empresa_id, s))[1]
+    iva_descontable = factura.get("iva_descontable", cap["cobra_iva"])
+    items = []
+    subtotal = iva_total = 0.0
+    for it in payload.items:
+        ls = it.cantidad * it.costo_unitario
+        li = ls * it.tarifa_iva / 100 if iva_descontable else 0.0
+        items.append({**it.model_dump(), "subtotal": redondear(ls, 2), "iva": redondear(li, 2), "total": redondear(ls + li, 2)})
+        subtotal += ls
+        iva_total += li
+    subtotal, iva_total = redondear(subtotal, 2), redondear(iva_total, 2)
+    base = float(factura.get("subtotal") or 0)
+    proporcion = min(1.0, subtotal / base) if base else 0.0
+    detalle, ret, total_ret = impuestos.prorratear_retenciones(factura.get("detalle_retenciones") or [], proporcion)
+    total = redondear(subtotal + iva_total, 2)
+    neto = redondear(total - total_ret, 2)
+    doc = {**payload.model_dump(exclude={"items"}), "items": items, "proveedor_id": factura["proveedor_id"],
+           "proveedor_nombre": factura.get("proveedor_nombre", ""), "factura_numero": factura.get("numero_factura", ""),
+           "factura_interna": factura.get("numero", ""), "afecta_inventario": factura.get("afecta_inventario", True),
+           "subtotal": subtotal, "iva_total": iva_total, "total": total, "retenciones": ret,
+           "detalle_retenciones": detalle, "total_retenciones": total_ret, "neto": neto,
+           "iva_descontable": iva_descontable, "proporcion": redondear(proporcion, 6), "estado": "registrada"}
+    return doc, factura
+
+
+async def _aplicar_devolucion(empresa_id: str, did: str, doc: dict, factura: dict, s) -> None:
+    db = get_db()
+    saldo = float(factura.get("saldo_pendiente", factura.get("total_a_pagar", 0)))
+    if doc["neto"] > saldo + 0.009:
+        raise HTTPException(409, f"La devolución ({doc['neto']:,.2f}) supera el saldo pendiente de la factura ({saldo:,.2f}). "
+                                 "Si ya la pagaste, registra el reintegro del proveedor con un comprobante contable")
+    nuevo = redondear(saldo - doc["neto"], 2)
+    await db.facturas_proveedor.update_one(
+        {"_id": factura["_id"]},
+        {"$set": {"saldo_pendiente": nuevo, "estado_pago": "pagada" if nuevo <= 0.009 else "parcial"}}, session=s)
+    p = await parametros.obtener(empresa_id, s)
+    t = doc["proveedor_id"]
+    cxp = factura.get("cuenta_cxp") or p["proveedores"]
+    lineas = [Linea(codigo=cxp, debito=doc["neto"], tercero_id=t, descripcion="Devolución a proveedor")]
+    for cuenta, valor in impuestos.lineas_retencion(doc["detalle_retenciones"], p, "practicada"):
+        lineas.append(Linea(codigo=cuenta, debito=valor, tercero_id=t, descripcion="Retención revertida"))
+    if doc["iva_total"]:
+        lineas.append(Linea(codigo=p["iva_descontable"], credito=doc["iva_total"], tercero_id=t,
+                            descripcion="IVA descontable revertido"))
+    cuenta_gasto = factura.get("cuenta_gasto") or p["gasto_compras"]
+    por_cuenta: dict[str, float] = {}
+    salidas = []
+    for it in doc["items"]:
+        if it.get("producto_id") and doc["afecta_inventario"]:
+            prod = await db.productos.find_one({"_id": oid(it["producto_id"]), "empresa_id": empresa_id}, session=s)
+            cuenta = parametros.cuenta_producto(prod, "cuenta_inventario", p)
+            salidas.append({"producto_id": it["producto_id"], "tipo": "salida", "cantidad": it["cantidad"]})
+        else:
+            cuenta = cuenta_gasto
+        por_cuenta[cuenta] = por_cuenta.get(cuenta, 0.0) + it["subtotal"]
+    lineas += [Linea(codigo=c, credito=redondear(v, 2), tercero_id=t, descripcion="Devolución a proveedor")
+               for c, v in por_cuenta.items()]
+    await registrar_asientos(empresa_id, DEV_PROV, did, doc["numero"], doc["fecha"], lineas, s)
+    if salidas:
+        bodega_id = doc.get("bodega_id") or await inventario.bodega_principal(empresa_id, s)
+        await inventario.registrar_movimientos(
+            empresa_id, DEV_PROV, did, doc["numero"], doc["fecha"],
+            [{**m, "bodega_id": bodega_id} for m in salidas], s)
+
+
+async def _revertir_devolucion(empresa_id: str, dev: dict, s) -> None:
+    db = get_db()
+    await db.facturas_proveedor.update_one(
+        {"_id": oid(dev["factura_id"]), "empresa_id": empresa_id},
+        {"$inc": {"saldo_pendiente": dev["neto"]}, "$set": {"estado_pago": "parcial"}}, session=s)
+    await borrar_asientos(empresa_id, DEV_PROV, str(dev["_id"]), s)
+    await inventario.borrar_movimientos(empresa_id, DEV_PROV, str(dev["_id"]), s)
+
+
+@compras.get("/devoluciones-proveedor")
+async def listar_devoluciones(
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("compras", "leer")),
+):
+    cursor = get_db().devoluciones_proveedor.find({"empresa_id": empresa_id}).sort([("fecha", -1), ("consecutivo", -1)])
+    return [serializar(d) async for d in cursor]
+
+
+@compras.post("/devoluciones-proveedor", status_code=201)
+async def crear_devolucion(
+    payload: DevolucionProveedorCrear,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("compras", "crear")),
+):
+    db = get_db()
+
+    async def _tx(s):
+        doc, factura = await _armar_devolucion(empresa_id, payload, s)
+        consecutivo = await siguiente_consecutivo(empresa_id, "devolucion_proveedor", s)
+        doc.update({"empresa_id": empresa_id, "prefijo": "NP", "consecutivo": consecutivo,
+                    "numero": formatear_numero("NP", consecutivo), "creado_por": usuario["id"], "fecha_creacion": ahora()})
+        res = await db.devoluciones_proveedor.insert_one(doc, session=s)
+        did = str(res.inserted_id)
+        await _aplicar_devolucion(empresa_id, did, doc, factura, s)
+        await auditar(empresa_id, DEV_PROV, did, doc["numero"], usuario["id"], "creado", s)
+        return res.inserted_id
+
+    nuevo = await en_transaccion(_tx)
+    return serializar(await db.devoluciones_proveedor.find_one({"_id": nuevo}))
+
+
+@compras.post("/devoluciones-proveedor/{did}/anular")
+async def anular_devolucion(
+    did: str,
+    payload: Anulacion,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("compras", "inactivar")),
+):
+    db = get_db()
+
+    async def _tx(s):
+        existente = await cargar_editable("devoluciones_proveedor", empresa_id, did, s)
+        await _revertir_devolucion(empresa_id, existente, s)
+        await db.devoluciones_proveedor.update_one(
+            {"_id": existente["_id"]}, {"$set": marca_anulacion(usuario["id"], payload.motivo)}, session=s)
+        await auditar(empresa_id, DEV_PROV, did, existente["numero"], usuario["id"], "anulado", s,
+                      {"motivo": payload.motivo})
+
+    await en_transaccion(_tx)
+    return serializar(await db.devoluciones_proveedor.find_one({"_id": oid(did)}))
 
 
 @compras.get("/retenciones")
@@ -589,4 +878,7 @@ async def resumen_retenciones(
     return {"periodo": {"desde": desde, "hasta": hasta}, "filas": filas, "resumen": totales}
 
 
+from api.compras import recibidas  # noqa: E402
+
+compras.include_router(recibidas.router)
 router.include_router(compras)

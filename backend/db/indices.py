@@ -51,6 +51,15 @@ INDICES: dict[str, list[tuple[list[tuple[str, int]], dict]]] = {
     "empleados": [([("empresa_id", 1), ("numero_documento", 1)], {"unique": True})],
     "nomina_novedades": [([("empresa_id", 1), ("empleado_id", 1), ("fecha_inicio", 1)], {})],
     "nomina_parametros": [([("empresa_id", 1), ("anio", 1)], {"unique": True})],
+    "facturas_recibidas": [
+        ([("empresa_id", 1), ("cufe", 1)], {"unique": True}),
+        ([("empresa_id", 1), ("fecha", -1)], {}),
+    ],
+    "anticipos": [([("empresa_id", 1), ("tipo", 1), ("tercero_id", 1)], {})],
+    "aplicaciones_anticipo": [([("empresa_id", 1), ("documento_id", 1)], {})],
+    "transferencias": [([("empresa_id", 1), ("fecha", -1)], {})],
+    "devoluciones_proveedor": [([("empresa_id", 1), ("factura_id", 1)], {})],
+    "tarifas_simple": [([("empresa_id", 1)], {"unique": True})],
     "nomina_periodos": [([("empresa_id", 1), ("anio", 1), ("mes", 1), ("tipo", 1)], {})],
     "nomina_obligaciones": [
         ([("empresa_id", 1), ("empleado_id", 1), ("tipo", 1)], {}),

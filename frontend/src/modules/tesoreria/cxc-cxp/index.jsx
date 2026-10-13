@@ -106,6 +106,40 @@ export default function Page() {
     }
   };
 
+  // Pago o cobro que cubre varias facturas de un mismo tercero.
+  const [multi, setMulti] = useState(null);
+  const [errorMulti, setErrorMulti] = useState(null);
+
+  const abrirMulti = (tipo) => {
+    setErrorMulti(null);
+    setMulti({ tipo, tercero_id: "", cuenta_id: "", fecha: hoy(), observaciones: "", valores: {} });
+  };
+  const docsMulti = multi ? (multi.tipo === "cxc" ? cartera.cxc : cartera.cxp) : [];
+  const tercerosMulti = [...new Map(docsMulti.map((d) => [d.tercero_id, d.tercero])).entries()];
+  const abiertasMulti = docsMulti.filter((d) => d.tercero_id === multi?.tercero_id);
+  const totalMulti = Object.values(multi?.valores || {}).reduce((s, v) => s + Number(v || 0), 0);
+
+  const confirmarMulti = async () => {
+    setErrorMulti(null);
+    const cuenta = cuentas.find((c) => c.id === multi.cuenta_id);
+    const aplicaciones = Object.entries(multi.valores)
+      .filter(([, v]) => Number(v) > 0)
+      .map(([documento_id, v]) => ({ documento_id, valor: Number(v) }));
+    if (!cuenta) return setErrorMulti("Selecciona la cuenta de caja o banco");
+    if (!aplicaciones.length) return setErrorMulti("Indica el valor a aplicar en al menos una factura");
+    try {
+      const { data } = await api.post("/api/tesoreria/pagos/multiple", {
+        documento_tipo: multi.tipo, cuenta_tipo: cuenta.tipo, cuenta_id: cuenta.id, fecha: multi.fecha,
+        observaciones: multi.observaciones || null, aplicaciones,
+      });
+      setMensaje(`${data.length} documento(s) registrados (${data.map((p) => p.numero).join(", ")}) por ${fmtCOP(totalMulti)}`);
+      setMulti(null);
+      cargar();
+    } catch (e) {
+      setErrorMulti(mensajeError(e));
+    }
+  };
+
   const columnas = [
     { key: "fecha", label: "Fecha" },
     { key: "vencimiento", label: "Vence", render: (r) => r.vencimiento || "—" },
@@ -132,6 +166,11 @@ export default function Page() {
         contable.
       </p>
       <Avisos error={error} mensaje={mensaje} />
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button onClick={() => abrirMulti("cxc")} className="text-sm px-3 py-1.5 rounded-sm border border-geifem-navy text-geifem-navy">Cobro de varias facturas</button>
+        <button onClick={() => abrirMulti("cxp")} className="text-sm px-3 py-1.5 rounded-sm border border-geifem-navy text-geifem-navy">Pago de varias facturas</button>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 mb-5">
         <div className="bg-white border border-slate-200 rounded-lg p-3">
@@ -224,6 +263,68 @@ export default function Page() {
                 onChange={(e) => setPago({ ...pago, observaciones: e.target.value })}
               />
             </FormField>
+          </>
+        )}
+      </Modal>
+      <Modal
+        open={Boolean(multi)}
+        onClose={() => setMulti(null)}
+        title={multi ? (multi.tipo === "cxc" ? "Cobro de varias facturas" : "Pago de varias facturas") : ""}
+        ancho="max-w-3xl"
+        footer={
+          <>
+            <button onClick={() => setMulti(null)} className="px-3 py-1.5 rounded-sm border border-slate-300 text-sm">Cancelar</button>
+            <button onClick={confirmarMulti} className="px-3 py-1.5 rounded-sm bg-geifem-navy text-white text-sm">
+              Aplicar {fmtCOP(totalMulti)}
+            </button>
+          </>
+        }
+      >
+        {multi && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <FormField label="Tercero">
+                <Select value={multi.tercero_id} onChange={(e) => setMulti({ ...multi, tercero_id: e.target.value, valores: {} })}>
+                  <option value="">Seleccionar…</option>
+                  {tercerosMulti.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
+                </Select>
+              </FormField>
+              <FormField label="Caja o banco">
+                <Select value={multi.cuenta_id} onChange={(e) => setMulti({ ...multi, cuenta_id: e.target.value })}>
+                  <option value="">Seleccionar…</option>
+                  {cuentas.map((c) => <option key={c.id} value={c.id}>{c.tipo === "caja" ? "Caja" : "Banco"} · {c.nombre}</option>)}
+                </Select>
+              </FormField>
+              <FormField label="Fecha"><Input type="date" value={multi.fecha} onChange={(e) => setMulti({ ...multi, fecha: e.target.value })} /></FormField>
+            </div>
+            {multi.tercero_id && (
+              <div className="border border-slate-200 rounded-lg overflow-x-auto mb-3">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100">
+                    <tr><th className="text-left px-3 py-2">Factura</th><th className="px-3 py-2">Vence</th><th className="text-right px-3 py-2">Saldo</th><th className="text-right px-3 py-2 w-36">Aplicar</th></tr>
+                  </thead>
+                  <tbody>
+                    {abiertasMulti.map((d) => (
+                      <tr key={d.id} className="border-t border-slate-100">
+                        <td className="px-3 py-1">{d.documento}</td>
+                        <td className="px-3 py-1 text-center">{d.vencimiento || "—"}</td>
+                        <td className="px-3 py-1 text-right">{fmtCOP(d.saldo)}</td>
+                        <td className="px-2 py-1">
+                          <div className="flex gap-1">
+                            <Input type="number" className="text-right" value={multi.valores[d.id] ?? ""}
+                              onChange={(e) => setMulti({ ...multi, valores: { ...multi.valores, [d.id]: e.target.value } })} />
+                            <button type="button" title="Saldar completa" className="text-xs px-1 text-geifem-blue"
+                              onClick={() => setMulti({ ...multi, valores: { ...multi.valores, [d.id]: d.saldo } })}>todo</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <FormField label="Observaciones"><Input value={multi.observaciones} onChange={(e) => setMulti({ ...multi, observaciones: e.target.value })} /></FormField>
+            {errorMulti && <p className="text-sm text-red-600">{errorMulti}</p>}
           </>
         )}
       </Modal>

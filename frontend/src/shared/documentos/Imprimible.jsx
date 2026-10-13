@@ -72,6 +72,16 @@ function normalizar(tipo, d, cuentas) {
       totales: [t("Valor", d.valor, false, true), t("Saldo del documento", d.saldo_resultante)], firmas: true,
     };
   }
+  if (tipo === "anticipo") {
+    const cli = d.tipo === "cliente";
+    return { ...base, titulo: cli ? "Recibo de anticipo de cliente" : "Comprobante de anticipo a proveedor", tercero: [cli ? "Recibido de" : "Entregado a", d.tercero_nombre],
+      items: null, datos: [["Medio", d.cuenta_nombre], ["Observaciones", d.observaciones]],
+      totales: [t("Valor", d.valor, false, true), t("Saldo por aplicar", d.saldo)], firmas: true };
+  }
+  if (tipo === "transferencia") {
+    return { ...base, titulo: "Transferencia entre cuentas", tercero: ["Origen", d.origen_nombre], items: null,
+      datos: [["Destino", d.destino_nombre], ["Concepto", d.concepto]], totales: [t("Valor", d.valor, false, true)], firmas: true };
+  }
   if (tipo === "movimiento") {
     return { ...base, titulo: d.tipo === "ingreso" ? "Ingreso de tesorería" : "Egreso de tesorería", tercero: ["Cuenta", d.cuenta_nombre], items: null,
       datos: [["Concepto", d.concepto], ["Cuenta contable", d.cuenta_contable], ["Contrapartida", d.cuenta_contrapartida]],

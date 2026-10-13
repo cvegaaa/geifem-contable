@@ -18,7 +18,7 @@ from core.auth.jwt_utils import hash_password
 from core.auth.models import EmpresaDatos, UsuarioCrear
 from core.auth.permissions import ACCIONES, MODULOS, PERMISOS_POR_ROL, permisos_base
 from core.auth.routes import usuario_publico
-from core import impuestos, nit, parametros
+from core import impuestos, nit, parametros, simple
 from core.empresas import crear_empresa
 from core.documentos import oid
 from db import get_db
@@ -414,3 +414,41 @@ async def cargar_conceptos_sugeridos(
 
 
 router.include_router(impuestos_router)
+
+
+# ---------------------------------------------------------------------------
+# Tarifas del régimen SIMPLE
+# ---------------------------------------------------------------------------
+
+tarifas_simple_router = APIRouter(prefix="/api/configuracion/tarifas-simple", tags=["configuracion:tarifas-simple"])
+
+
+class TarifasSimple(BaseModel):
+    verificado: bool = False
+    grupos: dict[str, dict]
+
+
+@tarifas_simple_router.get("")
+async def obtener_tarifas_simple(
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("configuracion", "leer")),
+):
+    return await simple.obtener(empresa_id)
+
+
+@tarifas_simple_router.put("")
+async def guardar_tarifas_simple(
+    payload: TarifasSimple,
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("configuracion", "editar")),
+):
+    simple.validar(payload.grupos)
+    await get_db().tarifas_simple.update_one(
+        {"empresa_id": empresa_id},
+        {"$set": {"verificado": payload.verificado, "grupos": payload.grupos}},
+        upsert=True,
+    )
+    return await simple.obtener(empresa_id)
+
+
+router.include_router(tarifas_simple_router)

@@ -89,6 +89,11 @@ export default function Page() {
               <div className="bg-slate-50 rounded p-2">Pagado<br /><b>{fmtCOP(cuenta.resumen.pagado)}</b></div>
               <div className="bg-slate-50 rounded p-2">Saldo<br /><b>{fmtCOP(cuenta.resumen.saldo)}</b></div>
             </div>
+            {cuenta.anticipos_disponibles?.length > 0 && (
+              <p className="text-sm text-emerald-700 mb-2">
+                Anticipos por aplicar: {cuenta.anticipos_disponibles.map((a) => `${a.numero} (${fmtCOP(a.saldo)})`).join(", ")}
+              </p>
+            )}
             <Table
               titulo={`Facturas de ${cuenta.tercero}`}
               columns={[

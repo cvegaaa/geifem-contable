@@ -51,6 +51,8 @@ class EmpresaDatos(BaseModel):
     telefono: str | None = None
     email: EmailStr | None = None
     actividad_ciiu: str | None = Field(default=None, pattern=r"^\d{4}$")
+    # Grupo de actividad del régimen SIMPLE (art. 908 ET): define las tarifas consolidadas.
+    grupo_simple: int = Field(default=2, ge=1, le=5)
 
     # Perfil tributario (define qué impuestos y retenciones se pueden parametrizar).
     gran_contribuyente: bool = False
