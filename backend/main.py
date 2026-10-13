@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.aprobaciones import interceptar as interceptar_aprobaciones
+from api.aprobaciones import router as aprobaciones_router
 from api.archivos import router as archivos_router
 from api.compras import router as compras_router
 from api.configuracion import router as configuracion_router
@@ -36,6 +38,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json" if settings.entorno == "desarrollo" else None,
 )
 
+# Las peticiones de usuarios que requieren aprobación se guardan como solicitud (api/aprobaciones).
+app.middleware("http")(interceptar_aprobaciones)
+
 origenes = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 if origenes:
     app.add_middleware(
@@ -54,6 +59,7 @@ async def health():
 
 
 app.include_router(auth_router)
+app.include_router(aprobaciones_router)
 app.include_router(configuracion_router)
 app.include_router(contabilidad_router)
 app.include_router(facturacion_router)

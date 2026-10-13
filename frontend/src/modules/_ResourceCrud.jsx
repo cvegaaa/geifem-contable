@@ -16,18 +16,21 @@ import { useEmpresa } from "../core/EmpresaContext.jsx";
  *   options: ["a", "b"] o [{valor, etiqueta}]
  *   mostrar: (perfil) => boolean — oculta el campo según el perfil tributario de la empresa.
  *   seccion: título de un grupo de campos (con `mostrar` opcional y `hint` texto o (perfil) => texto).
+ * filtrar / ordenar: muestran solo algunas filas o en un orden propio (p. ej. el plan de cuentas por nivel).
  * extra: ({ recargar, avisar }) => nodo para acciones propias junto al botón "+ Nuevo".
  */
 const normalizar = (options = []) =>
   options.map((o) => (typeof o === "string" ? { valor: o, etiqueta: o } : o));
 
-function valoresIniciales(fields) {
+function valoresIniciales(fields, respaldo = {}) {
   return Object.fromEntries(
-    fields.filter((f) => f.defecto !== undefined).map((f) => [f.key, f.defecto])
+    fields
+      .filter((f) => f.defecto !== undefined || (f.defectoParametro && respaldo[f.defectoParametro]))
+      .map((f) => [f.key, f.defecto !== undefined ? f.defecto : respaldo[f.defectoParametro]])
   );
 }
 
-export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields: todosLosCampos, descripcion, extra }) {
+export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields: todosLosCampos, descripcion, extra, filtrar, ordenar }) {
   const { puede } = useAuth();
   const { perfil } = useEmpresa();
   // Los campos con `mostrar` solo aparecen si el perfil tributario de la empresa lo permite.
@@ -35,6 +38,7 @@ export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields
   const [rows, setRows] = useState([]);
   const [refs, setRefs] = useState({});
   const [plan, setPlan] = useState([]);
+  const [respaldo, setRespaldo] = useState({});   // cuentas de respaldo de la empresa (valor inicial de algunos campos)
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
@@ -58,6 +62,11 @@ export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields
 
   useEffect(() => {
     cargar();
+    if (todosLosCampos.some((x) => x.defectoParametro)) {
+      api.get("/api/configuracion/parametros-contables")
+        .then((r) => setRespaldo(Object.fromEntries(r.data.map((p) => [p.clave, p.codigo]))))
+        .catch(() => {});
+    }
     if (todosLosCampos.some((x) => x.type === "cuenta")) {
       api.get("/api/configuracion/plan-cuentas").then((r) => setPlan(r.data)).catch(() => {});
     }
@@ -69,7 +78,7 @@ export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields
 
   const abrirCrear = () => {
     setEditando(null);
-    setForm(valoresIniciales(fields));
+    setForm(valoresIniciales(fields, respaldo));
     setErrorForm(null);
     setOpenForm(true);
   };
@@ -181,7 +190,7 @@ export default function ResourceCrud({ titulo, endpoint, modulo, columns, fields
       </div>
       {descripcion ? <p className="text-sm text-slate-500 mb-4">{descripcion}</p> : <div className="mb-4" />}
       <Avisos error={error} mensaje={mensaje} />
-      {cargando ? <div className="text-slate-500">Cargando…</div> : <Table columns={cols} rows={rows} />}
+      {cargando ? <div className="text-slate-500">Cargando…</div> : <Table columns={cols} rows={ordenar ? [...(filtrar ? rows.filter(filtrar) : rows)].sort(ordenar) : (filtrar ? rows.filter(filtrar) : rows)} />}
 
       <Modal
         open={openForm}

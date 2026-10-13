@@ -18,7 +18,7 @@ from core.auth.jwt_utils import hash_password
 from core.auth.models import EmpresaDatos, UsuarioCrear
 from core.auth.permissions import ACCIONES, MODULOS, PERMISOS_POR_ROL, permisos_base
 from core.auth.routes import usuario_publico
-from core import impuestos, nit, parametros, simple
+from core import impuestos, nit, parametros, roles, simple
 from core.empresas import crear_empresa
 from core.documentos import oid
 from db import get_db
@@ -137,7 +137,20 @@ async def listar_usuarios(
     _=Depends(require_permiso("configuracion", "leer")),
 ):
     cursor = get_db().usuarios.find({"empresa_ids": empresa_id}).sort("nombre", 1)
-    return [usuario_publico(u) async for u in cursor]
+    cache: dict[str, dict] = {}
+    salida = []
+    async for u in cursor:
+        if u.get("rol") not in cache:
+            cache[u.get("rol")] = await roles.obtener(empresa_id, u.get("rol", ""))
+        salida.append(usuario_publico(u, cache[u.get("rol")]))
+    return salida
+
+
+async def _exigir_rol(empresa_id: str, clave: str) -> dict:
+    existentes = {r["clave"]: r for r in await roles.listar(empresa_id)}
+    if clave not in existentes:
+        raise HTTPException(422, f"El rol «{clave}» no existe en esta empresa: créalo en Roles y permisos")
+    return existentes[clave]
 
 
 @usuarios_router.post("", status_code=201)
@@ -149,6 +162,7 @@ async def crear_usuario(
     db = get_db()
     if await db.usuarios.find_one({"email": payload.email}):
         raise HTTPException(409, "Email ya registrado")
+    rol = await _exigir_rol(empresa_id, payload.rol)
     doc = payload.model_dump()
     # Solo se pueden asignar empresas a las que el administrador pertenece.
     asignadas = doc["empresa_ids"] or [empresa_id]
@@ -157,20 +171,18 @@ async def crear_usuario(
         raise HTTPException(403, "No puedes asignar empresas a las que no perteneces")
     doc["empresa_ids"] = asignadas
     doc["password_hash"] = hash_password(doc.pop("password"))
-    if not doc.get("permisos"):
-        doc["permisos"] = permisos_base(doc["rol"])
+    doc.pop("permisos", None)   # el acceso depende del rol, no del usuario
     doc["fecha_creacion"] = datetime.now(timezone.utc)
     res = await db.usuarios.insert_one(doc)
-    return usuario_publico(await db.usuarios.find_one({"_id": res.inserted_id}))
+    return usuario_publico(await db.usuarios.find_one({"_id": res.inserted_id}), rol)
 
 
 class UsuarioEditar(BaseModel):
     nombre: str = Field(min_length=1, max_length=120)
-    rol: Literal["admin", "contador", "auxiliar", "vendedor"]
+    rol: str
     activo: bool = True
     requiere_aprobacion: bool | None = None
     empresa_ids: list[str] | None = None
-    permisos: dict[str, list[str]] | None = None
 
 
 class NuevaPassword(BaseModel):
@@ -213,19 +225,10 @@ async def editar_usuario(
     if deja_de_ser_admin and not await _quedan_admins(empresa_id, u["_id"]):
         raise HTTPException(409, "La empresa debe conservar al menos un administrador activo")
 
-    permisos = payload.permisos
-    if permisos is not None:
-        desconocidos = {m for m in permisos if m not in MODULOS}
-        invalidas = {a for acc in permisos.values() for a in acc if a not in ACCIONES}
-        if desconocidos or invalidas:
-            raise HTTPException(422, "Permisos inválidos")
-    elif payload.rol != u.get("rol"):
-        permisos = permisos_base(payload.rol)   # al cambiar de rol se aplica su plantilla
+    rol = await _exigir_rol(empresa_id, payload.rol)
     cambios: dict = {"nombre": payload.nombre, "rol": payload.rol, "activo": payload.activo,
                      "requiere_aprobacion": payload.requiere_aprobacion,
                      "fecha_actualizacion": datetime.now(timezone.utc)}
-    if permisos is not None:
-        cambios["permisos"] = permisos
     if payload.empresa_ids is not None:
         # El administrador solo gestiona las empresas que él mismo tiene; las demás del usuario no se tocan.
         propias = set(admin.get("empresa_ids", []))
@@ -236,10 +239,11 @@ async def editar_usuario(
         if not soy_yo and empresa_id not in nuevas and u.get("rol") == "admin" and not await _quedan_admins(empresa_id, u["_id"]):
             raise HTTPException(409, "La empresa debe conservar al menos un administrador activo")
         cambios["empresa_ids"] = nuevas
-    if not payload.activo or payload.rol != u.get("rol") or permisos is not None:
+    if not payload.activo or payload.rol != u.get("rol"):
         cambios["token_version"] = int(u.get("token_version", 0)) + 1   # cierra sus sesiones abiertas
-    await db.usuarios.update_one({"_id": u["_id"]}, {"$set": cambios})
-    return usuario_publico(await db.usuarios.find_one({"_id": u["_id"]}))
+    await db.usuarios.update_one({"_id": u["_id"]}, {"$set": cambios}, )
+    await db.usuarios.update_one({"_id": u["_id"]}, {"$unset": {"permisos": ""}})
+    return usuario_publico(await db.usuarios.find_one({"_id": u["_id"]}), rol)
 
 
 @usuarios_router.post("/{uid}/restablecer-password", status_code=204)
@@ -256,9 +260,88 @@ async def restablecer_password(
         {"$set": {"password_hash": hash_password(payload.nueva), "token_version": int(u.get("token_version", 0)) + 1}})
 
 
-@usuarios_router.get("/roles-plantilla")
-async def roles_plantilla(_=Depends(require_permiso("configuracion", "leer"))):
-    return PERMISOS_POR_ROL
+# ---------------------------------------------------------------------------
+# Roles y permisos
+# ---------------------------------------------------------------------------
+
+roles_router = APIRouter(prefix="/api/configuracion/roles", tags=["configuracion:roles"])
+
+
+class RolEntrada(BaseModel):
+    nombre: str = Field(min_length=2, max_length=60)
+    permisos: dict[str, list[str]]
+    requiere_aprobacion: bool = False
+
+
+def _validar_permisos(permisos: dict[str, list[str]]) -> None:
+    if {m for m in permisos if m not in MODULOS} or {a for acc in permisos.values() for a in acc if a not in ACCIONES}:
+        raise HTTPException(422, "Permisos inválidos")
+
+
+@roles_router.get("")
+async def listar_roles(
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("configuracion", "leer")),
+):
+    return {"roles": await roles.listar(empresa_id), "modulos": MODULOS, "acciones": ACCIONES}
+
+
+@roles_router.post("", status_code=201)
+async def crear_rol(
+    payload: RolEntrada,
+    empresa_id: str = Depends(get_empresa_activa),
+    admin: dict = Depends(require_admin),
+):
+    _validar_permisos(payload.permisos)
+    clave = roles.clave_de(payload.nombre)
+    if not clave or clave in {r["clave"] for r in await roles.listar(empresa_id)}:
+        raise HTTPException(409, "Ya existe un rol con ese nombre")
+    await get_db().roles_empresa.insert_one({
+        "empresa_id": empresa_id, "clave": clave, "nombre": payload.nombre.strip(), "sistema": False,
+        "permisos": payload.permisos, "requiere_aprobacion": payload.requiere_aprobacion,
+        "creado_por": admin["id"], "fecha_creacion": datetime.now(timezone.utc)})
+    return await roles.obtener(empresa_id, clave)
+
+
+@roles_router.put("/{clave}")
+async def editar_rol(
+    clave: str,
+    payload: RolEntrada,
+    empresa_id: str = Depends(get_empresa_activa),
+    admin: dict = Depends(require_admin),
+):
+    """Cambia los permisos de un rol: aplica de inmediato a todos sus usuarios. El administrador no se puede restringir."""
+    if clave == "admin":
+        raise HTTPException(409, "El rol de administrador tiene siempre todos los permisos")
+    if clave not in {r["clave"] for r in await roles.listar(empresa_id)}:
+        raise HTTPException(404, "Rol no encontrado")
+    _validar_permisos(payload.permisos)
+    actual = await roles.obtener(empresa_id, clave)
+    await get_db().roles_empresa.update_one(
+        {"empresa_id": empresa_id, "clave": clave},
+        {"$set": {"nombre": payload.nombre.strip() if not actual["sistema"] else actual["nombre"],
+                  "sistema": actual["sistema"], "permisos": payload.permisos,
+                  "requiere_aprobacion": payload.requiere_aprobacion,
+                  "editado_por": admin["id"], "fecha_actualizacion": datetime.now(timezone.utc)}},
+        upsert=True)
+    return await roles.obtener(empresa_id, clave)
+
+
+@roles_router.delete("/{clave}", status_code=204)
+async def eliminar_rol(
+    clave: str,
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_admin),
+):
+    actual = await roles.obtener(empresa_id, clave)
+    if actual["sistema"]:
+        raise HTTPException(409, "Los roles base no se eliminan")
+    if await get_db().usuarios.find_one({"empresa_ids": empresa_id, "rol": clave}):
+        raise HTTPException(409, "Hay usuarios con este rol: asígnales otro antes de eliminarlo")
+    await get_db().roles_empresa.delete_one({"empresa_id": empresa_id, "clave": clave})
+
+
+router.include_router(roles_router)
 
 
 router.include_router(usuarios_router)
@@ -321,6 +404,22 @@ router.include_router(parametros_router)
 impuestos_router = APIRouter(prefix="/api/configuracion", tags=["configuracion:impuestos"])
 
 
+@impuestos_router.post("/resoluciones-dian/sincronizar")
+async def sincronizar_resoluciones(
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("configuracion", "crear")),
+):
+    """Trae del portal de la DIAN (vía el proveedor tecnológico) las resoluciones habilitadas de la empresa."""
+    from core.dian import resoluciones as sync
+    from core.dian.cliente_pt import get_cliente_pt
+
+    try:
+        recibidas = await get_cliente_pt().listar_resoluciones(empresa_id)
+    except NotImplementedError as e:
+        raise HTTPException(501, str(e))
+    return await sync.aplicar(get_db(), empresa_id, recibidas)
+
+
 @impuestos_router.get("/perfil-tributario")
 async def perfil_tributario(
     empresa_id: str = Depends(get_empresa_activa),
@@ -332,14 +431,44 @@ async def perfil_tributario(
 
 
 async def _validar_inc(payload: dict, empresa_id: str) -> None:
-    """Impuesto al consumo: cada impuesto va atado a la cuenta contable donde se causa."""
+    """Impuesto al consumo: un solo impuesto con varias tarifas; todas se causan en la cuenta del INC."""
     payload["tipo"] = "INC"
     tarifa = float(payload.get("tarifa") or 0)
     if not 0 < tarifa <= 100:
         raise HTTPException(422, "La tarifa del impuesto debe estar entre 0 y 100")
     if not payload.get("cuenta_contable"):
-        raise HTTPException(422, "Selecciona la cuenta contable donde se causa el impuesto")
+        payload["cuenta_contable"] = (await parametros.obtener(empresa_id))["impuesto_consumo"]
     await parametros.validar_codigos(empresa_id, {"Cuenta contable": payload["cuenta_contable"]})
+
+
+class CuentaINC(BaseModel):
+    cuenta_contable: str = Field(min_length=4)
+
+
+@impuestos_router.get("/impuesto-consumo/cuenta")
+async def cuenta_inc(
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("configuracion", "leer")),
+):
+    return {"cuenta_contable": (await parametros.obtener(empresa_id))["impuesto_consumo"]}
+
+
+@impuestos_router.put("/impuesto-consumo/cuenta")
+async def definir_cuenta_inc(
+    payload: CuentaINC,
+    empresa_id: str = Depends(get_empresa_activa),
+    usuario: dict = Depends(require_permiso("configuracion", "editar")),
+):
+    """Cuenta única del impuesto al consumo: se aplica a todas sus tarifas (las ventas ya hechas conservan la suya)."""
+    await parametros.validar_codigos(empresa_id, {"Cuenta del impuesto al consumo": payload.cuenta_contable})
+    db = get_db()
+    await db.parametros_contables.update_one(
+        {"empresa_id": empresa_id},
+        {"$set": {"cuentas.impuesto_consumo": payload.cuenta_contable, "actualizado_por": usuario["id"],
+                  "fecha_actualizacion": datetime.now(timezone.utc)}},
+        upsert=True)
+    await db.impuestos_config.update_many({"empresa_id": empresa_id}, {"$set": {"cuenta_contable": payload.cuenta_contable}})
+    return {"cuenta_contable": payload.cuenta_contable}
 
 
 router.include_router(

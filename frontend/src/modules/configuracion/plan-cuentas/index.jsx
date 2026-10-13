@@ -1,3 +1,4 @@
+import { useState } from "react";
 import api from "../../../core/api.js";
 import { mensajeError } from "../../../shared/documentos/index.jsx";
 import ResourceCrud, { etiquetaDe } from "../../_ResourceCrud.jsx";
@@ -7,14 +8,31 @@ const NATURALEZAS = [
   { valor: "credito", etiqueta: "Crédito" },
 ];
 
+const NIVELES = [
+  { digitos: 1, etiqueta: "Clases (1 dígito)" },
+  { digitos: 2, etiqueta: "Grupos (2 dígitos)" },
+  { digitos: 4, etiqueta: "Cuentas (4 dígitos)" },
+  { digitos: 6, etiqueta: "Subcuentas auxiliares (6 dígitos)" },
+  { digitos: 12, etiqueta: "Todo el detalle" },
+];
+
 export default function Page() {
+  // Por defecto se abre hasta el nivel de detalle de 6 dígitos.
+  const [nivel, setNivel] = useState(6);
   return (
     <ResourceCrud
       titulo="Plan de cuentas"
-      descripcion="Cuentas del PUC de la empresa. Las de 4 o más dígitos reciben movimientos; las de 1 y 2 dígitos solo agrupan."
+      filtrar={(r) => String(r.codigo).length <= nivel}
+      ordenar={(a, b) => String(a.codigo).localeCompare(String(b.codigo), "es", { numeric: true })}
+      descripcion="Cuentas del PUC de la empresa, abiertas hasta el detalle de 6 dígitos (subcuentas auxiliares). Las de 1 y 2 dígitos solo agrupan; las de 4 y 6 dígitos reciben movimientos: usa de preferencia las de 6 para el detalle."
       endpoint="/api/configuracion/plan-cuentas"
       modulo="configuracion"
       extra={({ recargar, avisar }) => (
+        <>
+        <select value={nivel} onChange={(e) => setNivel(Number(e.target.value))}
+          className="border border-slate-300 rounded-sm px-2 py-2 text-sm bg-white" title="Nivel de detalle">
+          {NIVELES.map((n) => <option key={n.digitos} value={n.digitos}>{n.etiqueta}</option>)}
+        </select>
         <button
           onClick={async () => {
             try {
@@ -30,9 +48,10 @@ export default function Page() {
         >
           Completar con cuentas sugeridas
         </button>
+        </>
       )}
       columns={[
-        { key: "codigo", label: "Código", render: (r) => <span className={r.acepta_movimientos === false ? "font-semibold" : ""}>{r.codigo}</span> },
+        { key: "codigo", label: "Código", render: (r) => <span style={{ paddingLeft: `${(String(r.codigo).length / 2) * 6}px` }} className={r.acepta_movimientos === false ? "font-semibold" : ""}>{r.codigo}</span> },
         { key: "nombre", label: "Nombre", render: (r) => <span className={r.acepta_movimientos === false ? "font-semibold" : ""}>{r.nombre}</span> },
         { key: "naturaleza", label: "Naturaleza", render: (r) => etiquetaDe(NATURALEZAS, r.naturaleza) },
         { key: "acepta_movimientos", label: "Movimientos", render: (r) => (r.acepta_movimientos === false ? "Agrupa" : "Sí") },

@@ -19,7 +19,7 @@ async def _balance(c) -> dict:
 async def _subcuenta(c, codigo, nombre, naturaleza="debito"):
     r = await c.post("/api/configuracion/plan-cuentas", json={
         "codigo": codigo, "nombre": nombre, "naturaleza": naturaleza, "acepta_movimientos": True})
-    assert r.status_code == 201, r.text
+    assert r.status_code in (201, 409), r.text      # 409: la subcuenta ya viene en el plan semilla
 
 
 async def _datos_venta(c, **cuentas_producto):

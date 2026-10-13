@@ -13,6 +13,7 @@ facturas, compras, tesorería, inventario):
 - Todo cambio queda en la colección `auditoria`.
 """
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import TypeVar
 
@@ -25,6 +26,9 @@ from db import get_client, get_db
 from core.dinero import centavos, redondear
 
 T = TypeVar("T")
+
+# Aprobador de la solicitud que se está ejecutando (None en el flujo normal); lo usa la auditoría.
+APROBADOR: ContextVar[str | None] = ContextVar("aprobador", default=None)
 
 # Filtro para excluir documentos anulados en consultas y reportes.
 NO_ANULADO = {"estado": {"$ne": "anulado"}}
@@ -213,19 +217,22 @@ async def auditar(
     usuario_id: str, accion: str, s: AsyncClientSession | None = None,
     detalle: dict | None = None,
 ) -> None:
-    await get_db().auditoria.insert_one(
-        {
-            "empresa_id": empresa_id,
-            "documento_tipo": documento_tipo,
-            "documento_id": documento_id,
-            "numero": numero,
-            "usuario_id": usuario_id,
-            "accion": accion,  # creado | editado | anulado
-            "fecha_hora": ahora(),
-            "detalle": detalle or {},
-        },
-        session=s,
-    )
+    momento = ahora()
+    eventos = [{
+        "empresa_id": empresa_id,
+        "documento_tipo": documento_tipo,
+        "documento_id": documento_id,
+        "numero": numero,
+        "usuario_id": usuario_id,
+        "accion": accion,  # creado | editado | anulado | aprobado ...
+        "fecha_hora": momento,
+        "detalle": detalle or {},
+    }]
+    aprobador = APROBADOR.get()
+    if aprobador and accion in ("creado", "editado", "anulado"):
+        # El documento lo registró quien lo solicitó, pero lo autorizó otro usuario: queda constancia.
+        eventos.append({**eventos[0], "usuario_id": aprobador, "accion": "aprobado", "detalle": {"solicitud": accion}})
+    await get_db().auditoria.insert_many(eventos, session=s)
 
 
 # Nombre legible y pantalla de cada tipo de documento que escribe en el libro o en la auditoría.

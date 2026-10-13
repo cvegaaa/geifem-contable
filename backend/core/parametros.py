@@ -34,6 +34,7 @@ PARAMETROS: dict[str, tuple[str, str, str]] = {
     "reteica_favor": ("Impuestos", "ReteICA que te practican (a favor)", "1355"),
     "autorretencion_anticipo": ("Impuestos", "Autorretención de renta: anticipo (débito)", "1355"),
     "autorretencion_pasivo": ("Impuestos", "Autorretención de renta por pagar (crédito)", "2365"),
+    "impuesto_consumo": ("Impuestos", "Impuesto nacional al consumo (INC) por pagar", "2495"),
     "saldos_iniciales": ("Tesorería", "Contrapartida de los saldos iniciales de caja y bancos", "3105"),
     "nomina_gasto_salarios": ("Nómina", "Gasto de sueldos, vacaciones, comisiones y bonificaciones", "5105"),
     "nomina_gasto_horas_extra": ("Nómina", "Gasto de horas extra y recargos", "5105"),

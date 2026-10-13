@@ -6,7 +6,7 @@ from config import settings
 from db import get_db
 
 from .jwt_utils import decode_token
-from .permissions import permisos_efectivos
+from core import roles
 
 
 def _token_de_request(request: Request) -> str | None:
@@ -35,7 +35,14 @@ async def get_current_user(request: Request) -> dict:
     if int(payload.get("v", 0)) != int(user.get("token_version", 0)):
         raise HTTPException(status_code=401, detail="La sesión ya no es válida: inicia sesión de nuevo")
     user["id"] = str(user.pop("_id"))
-    user["permisos"] = permisos_efectivos(user.get("rol", ""), user.get("permisos"))
+    # El acceso es el del rol del usuario en la empresa activa (o la primera suya si la petición no indica una).
+    empresas = user.get("empresa_ids", [])
+    pedida = request.headers.get("X-Empresa-Id")
+    empresa = pedida if pedida in empresas else (empresas[0] if empresas else None)
+    rol = await roles.obtener(empresa, user.get("rol", ""))
+    user["permisos"] = rol["permisos"]
+    user["rol_nombre"] = rol["nombre"]
+    user["rol_requiere_aprobacion"] = rol["requiere_aprobacion"]
     return user
 
 

@@ -75,6 +75,17 @@ export default function Page() {
         { key: "tipo_cuenta", label: "Tipo de cuenta", type: "select", options: CUENTAS, defecto: "ahorros" },
         { key: "numero_cuenta", label: "Número de cuenta" },
 
+        {
+          seccion: "Cuentas contables del empleado",
+          hint: "El gasto de la nómina de este empleado se contabiliza en estas cuentas (por ejemplo, distintas según el área: administración, ventas o producción). Vienen sugeridas con las de la empresa.",
+        },
+        { key: "cuenta_gasto_salarios", label: "Sueldos y devengados", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_salarios" },
+        { key: "cuenta_gasto_horas_extra", label: "Horas extra y recargos", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_horas_extra" },
+        { key: "cuenta_gasto_aux_transporte", label: "Auxilio de transporte", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_aux_transporte" },
+        { key: "cuenta_gasto_seguridad_social", label: "Seguridad social (empleador)", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_seguridad_social" },
+        { key: "cuenta_gasto_parafiscales", label: "Parafiscales", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_parafiscales" },
+        { key: "cuenta_gasto_prestaciones", label: "Prestaciones sociales", type: "cuenta", prefijos: ["51", "52", "53", "72", "73"], defectoParametro: "nomina_gasto_prestaciones" },
+
         { seccion: "Retención en la fuente laboral", hint: "Deducciones que reducen la base de retención (procedimiento 1)." },
         { key: "dependientes", label: "Dependientes", type: "checkbox", defecto: false, textoCheckbox: "Tiene dependientes (deducción del 10%)" },
         { key: "deduccion_vivienda", label: "Intereses de vivienda (mensual)", type: "number" },

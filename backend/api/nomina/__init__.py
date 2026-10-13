@@ -96,6 +96,28 @@ async def _validar_empleado(payload: dict, empresa_id: str) -> None:
     payload.setdefault("tipo_contrato", "indefinido")
     if payload["tipo_contrato"] not in TIPOS_CONTRATO:
         raise HTTPException(422, "Tipo de contrato inválido")
+    # Cada empleado lleva sus cuentas de gasto (centro de costo contable); si no se eligen, las de respaldo de la empresa.
+    respaldo = await parametros.obtener(empresa_id)
+    for campo, param in CUENTAS_EMPLEADO.items():
+        if not payload.get(campo):
+            payload[campo] = respaldo[param]
+    await parametros.validar_codigos(empresa_id, {campo: payload.get(campo) for campo in CUENTAS_EMPLEADO})
+
+
+# campo del empleado -> parámetro contable de respaldo
+CUENTAS_EMPLEADO = {
+    "cuenta_gasto_salarios": "nomina_gasto_salarios",
+    "cuenta_gasto_horas_extra": "nomina_gasto_horas_extra",
+    "cuenta_gasto_aux_transporte": "nomina_gasto_aux_transporte",
+    "cuenta_gasto_seguridad_social": "nomina_gasto_seguridad_social",
+    "cuenta_gasto_parafiscales": "nomina_gasto_parafiscales",
+    "cuenta_gasto_prestaciones": "nomina_gasto_prestaciones",
+}
+
+
+def _cuenta_emp(emp: dict | None, campo: str, p: dict) -> str:
+    """Cuenta de gasto del empleado o, si no la tiene, la de respaldo de la empresa."""
+    return (emp or {}).get(campo) or p[CUENTAS_EMPLEADO[campo]]
 
 
 async def _validar_novedad(payload: dict, empresa_id: str) -> None:
@@ -228,14 +250,24 @@ async def _aplicar_periodo(empresa_id: str, pid: str, doc: dict, s) -> None:
     db = get_db()
     p = await parametros.obtener(empresa_id, s)
     t = doc["totales"]
-    lineas = [
-        Linea(codigo=p["nomina_gasto_salarios"], debito=t["sueldos"]),
-        Linea(codigo=p["nomina_gasto_horas_extra"], debito=t["horas_extra"]),
-        Linea(codigo=p["nomina_gasto_aux_transporte"], debito=t["aux_transporte"]),
+    # El gasto de cada empleado se contabiliza en sus propias cuentas (puede haber áreas o centros distintos).
+    gastos: dict[str, float] = {}
+    empleados = {str(e["_id"]): e async for e in db.empleados.find(
+        {"_id": {"$in": [oid(l["empleado_id"]) for l in doc["lineas"]]}, "empresa_id": empresa_id}, session=s)}
+    for l in doc["lineas"]:
+        tl = motor.totales_periodo([l])
+        emp = empleados.get(l["empleado_id"])
+        for campo, valor in (
+            ("cuenta_gasto_salarios", tl["sueldos"]), ("cuenta_gasto_horas_extra", tl["horas_extra"]),
+            ("cuenta_gasto_aux_transporte", tl["aux_transporte"]),
+            ("cuenta_gasto_seguridad_social", tl["seguridad_social_empleador"]),
+            ("cuenta_gasto_parafiscales", tl["parafiscales"]),
+            ("cuenta_gasto_prestaciones", tl["cesantias"] + tl["intereses"] + tl["prima"] + tl["vacaciones"]),
+        ):
+            cuenta = _cuenta_emp(emp, campo, p)
+            gastos[cuenta] = gastos.get(cuenta, 0.0) + valor
+    lineas = [Linea(codigo=c, debito=redondear(v, 2)) for c, v in gastos.items()] + [
         Linea(codigo=p["nomina_eps_por_cobrar"], debito=t["a_cargo_eps_arl"], descripcion="Incapacidades por recobrar"),
-        Linea(codigo=p["nomina_gasto_seguridad_social"], debito=t["seguridad_social_empleador"]),
-        Linea(codigo=p["nomina_gasto_parafiscales"], debito=t["parafiscales"]),
-        Linea(codigo=p["nomina_gasto_prestaciones"], debito=t["cesantias"] + t["intereses"] + t["prima"] + t["vacaciones"]),
         Linea(codigo=p["nomina_salarios_por_pagar"], credito=t["neto_pagar"]),
         Linea(codigo=p["nomina_aportes_empleado"], credito=t["salud_empleado"] + t["pension_empleado"] + t["fsp"]),
         Linea(codigo=p["nomina_retefuente"], credito=t["retefuente"]),
@@ -765,10 +797,10 @@ async def crear_liquidacion_final(
                                "documento_id": lid, "fecha_creacion": ahora()})
             diferencia = redondear(legal - saldo, 2)
             if diferencia > 0:
-                lineas.append(Linea(codigo=p["nomina_gasto_prestaciones"], debito=diferencia, descripcion=f"{tipo}: mayor valor"))
+                lineas.append(Linea(codigo=_cuenta_emp(emp, "cuenta_gasto_prestaciones", p), debito=diferencia, descripcion=f"{tipo}: mayor valor"))
             elif diferencia < 0:
-                lineas.append(Linea(codigo=p["nomina_gasto_prestaciones"], credito=-diferencia, descripcion=f"{tipo}: reintegro de provisión"))
-        lineas.append(Linea(codigo=p["nomina_gasto_salarios"], debito=calculo["salario_pendiente"]))
+                lineas.append(Linea(codigo=_cuenta_emp(emp, "cuenta_gasto_prestaciones", p), credito=-diferencia, descripcion=f"{tipo}: reintegro de provisión"))
+        lineas.append(Linea(codigo=_cuenta_emp(emp, "cuenta_gasto_salarios", p), debito=calculo["salario_pendiente"]))
         lineas.append(Linea(codigo=p["nomina_gasto_indemnizacion"], debito=calculo["indemnizacion"]))
         lineas.append(Linea(codigo=p["nomina_salarios_por_pagar"], credito=calculo["total"]))
         await registrar_asientos(empresa_id, LIQ_FINAL, lid, numero, payload.fecha_retiro, lineas, s)

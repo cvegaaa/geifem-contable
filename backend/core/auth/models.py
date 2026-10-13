@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-Role = Literal["admin", "contador", "auxiliar", "vendedor"]
+Role = str   # clave de un rol de la empresa (admin, contador, auxiliar, vendedor u otro creado)
 Regimen = Literal["ORDINARIO", "SIMPLE"]
 
 
@@ -30,6 +30,9 @@ class UsuarioBase(BaseModel):
 
 class UsuarioPublico(UsuarioBase):
     id: str
+    rol_nombre: str | None = None
+    # Si lo que registra este usuario necesita la aprobación de otro (por su rol o por su marca propia).
+    aprobacion_requerida: bool = False
 
 
 class UsuarioCrear(UsuarioBase):

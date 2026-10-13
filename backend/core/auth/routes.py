@@ -15,15 +15,21 @@ from .limites import (
     exigir_cupo_login, exigir_cupo_registro, ip_cliente, limpiar, registrar_fallo_login,
 )
 from .models import CambioPassword, LoginRequest, RegistroRequest, SesionResponse, UsuarioPublico
-from .permissions import permisos_base, permisos_efectivos
+from core import roles
+from .permissions import permisos_base
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def usuario_publico(user: dict) -> UsuarioPublico:
+def usuario_publico(user: dict, rol: dict | None = None) -> UsuarioPublico:
+    """`rol`: el rol del usuario en la empresa (de ahí salen sus permisos); sin él se usa la plantilla base."""
     datos = {k: v for k, v in user.items() if k not in ("_id", "password_hash")}
     datos["id"] = str(user.get("_id", user.get("id")))
-    datos["permisos"] = permisos_efectivos(datos.get("rol", ""), datos.get("permisos"))
+    rol = rol or roles.por_defecto(datos.get("rol", ""))
+    datos["permisos"] = rol["permisos"]
+    datos["rol_nombre"] = rol["nombre"]
+    marca = datos.get("requiere_aprobacion")
+    datos["aprobacion_requerida"] = bool(marca) if marca is not None else bool(rol["requiere_aprobacion"])
     return UsuarioPublico(**datos)
 
 
@@ -74,7 +80,8 @@ async def registro(payload: RegistroRequest, request: Request, response: Respons
 
     user = await db.usuarios.find_one({"_id": ObjectId(usuario_id)})
     _abrir_sesion(response, usuario_id, "admin")
-    return SesionResponse(usuario=usuario_publico(user), empresa_activa_id=user["empresa_ids"][0])
+    rol = await roles.obtener(user["empresa_ids"][0], "admin")
+    return SesionResponse(usuario=usuario_publico(user, rol), empresa_activa_id=user["empresa_ids"][0])
 
 
 @router.post("/login", response_model=SesionResponse)
@@ -90,8 +97,9 @@ async def login(payload: LoginRequest, request: Request, response: Response):
     await limpiar(f"login:{payload.email.lower()}")
     _abrir_sesion(response, str(user["_id"]), user["rol"], user.get("token_version", 0))
     empresa_ids = user.get("empresa_ids", [])
+    rol = await roles.obtener(empresa_ids[0] if empresa_ids else None, user["rol"])
     return SesionResponse(
-        usuario=usuario_publico(user),
+        usuario=usuario_publico(user, rol),
         empresa_activa_id=empresa_ids[0] if empresa_ids else None,
     )
 
@@ -116,4 +124,5 @@ async def cambiar_password(payload: CambioPassword, response: Response, user: di
 
 @router.get("/me", response_model=UsuarioPublico)
 async def me(user: dict = Depends(get_current_user)):
-    return usuario_publico(user)
+    return usuario_publico(user, {"permisos": user["permisos"], "nombre": user["rol_nombre"],
+                                  "requiere_aprobacion": user["rol_requiere_aprobacion"]})

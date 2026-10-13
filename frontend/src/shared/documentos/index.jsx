@@ -149,10 +149,13 @@ export function tituloModo(modo, nombre, doc) {
 }
 
 export function Avisos({ error, mensaje }) {
+  const pendiente = typeof error === "string" && error.startsWith("Pendiente de aprobación");
   return (
     <>
       {error && (
-        <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-sm px-3 py-2">{error}</div>
+        <div className={`mb-3 text-sm rounded-sm px-3 py-2 border ${pendiente
+          ? "text-amber-800 bg-amber-50 border-amber-200"
+          : "text-red-600 bg-red-50 border-red-200"}`}>{error}</div>
       )}
       {mensaje && (
         <div className="mb-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-sm px-3 py-2">

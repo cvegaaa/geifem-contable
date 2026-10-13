@@ -71,12 +71,11 @@ async def test_nota_credito_prorratea_retenciones(nuevo_cliente):
 
 async def test_impuesto_al_consumo_en_la_venta(nuevo_cliente):
     c = await _empresa(nuevo_cliente)
-    # Sin cuenta contable el impuesto no se puede crear.
-    r = await c.post("/api/configuracion/impuestos", json={"nombre": "INC restaurantes", "tarifa": 8})
-    assert r.status_code == 422 and "cuenta" in r.json()["detail"].lower()
-    r = await c.post("/api/configuracion/impuestos", json={
-        "nombre": "INC restaurantes 8%", "tarifa": 8, "cuenta_contable": "2495"})
-    assert r.status_code == 201, r.text
+    # La tarifa debe ser válida; la cuenta contable es la única del impuesto al consumo.
+    r = await c.post("/api/configuracion/impuestos", json={"nombre": "INC", "tarifa": 0})
+    assert r.status_code == 422 and "tarifa" in r.json()["detail"].lower()
+    r = await c.post("/api/configuracion/impuestos", json={"nombre": "INC restaurantes 8%", "tarifa": 8})
+    assert r.status_code == 201 and r.json()["cuenta_contable"] == "2495", r.text
     inc_id = r.json()["id"]
 
     prod, cliente, resol = await _venta(c, impuesto_consumo_id=inc_id, tipo_iva="excluido")

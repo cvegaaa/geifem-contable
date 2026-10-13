@@ -22,7 +22,17 @@ function normalizarDetalle(err) {
 }
 
 api.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    // El documento quedó como solicitud pendiente de aprobación: no se creó todavía.
+    if (r.status === 202 && r.data?.por_aprobar) {
+      const err = new Error(r.data.detail);
+      err.response = { status: 202, data: { detail: r.data.detail, por_aprobar: true } };
+      err.porAprobar = true;
+      window.dispatchEvent(new CustomEvent("aprobaciones:cambio"));
+      return Promise.reject(err);
+    }
+    return r;
+  },
   (err) => {
     normalizarDetalle(err);
     const url = err.config?.url || "";

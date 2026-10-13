@@ -29,8 +29,8 @@ const ESTADOS_ABIERTOS = ["por_aprobar", "rechazado"];
 /** Pantalla de un tipo de comprobante: listado + formulario (nuevo / editar / duplicar). */
 export default function ComprobanteForm({ tipo, titulo }) {
   const { puede, usuario } = useAuth();
-  const requiereAprobacion = usuario?.requiere_aprobacion ?? usuario?.rol === "auxiliar";
-  const puedeAprobar = ["admin", "contador"].includes(usuario?.rol) || (usuario?.permisos?.contabilidad || []).includes("aprobar");
+  const requiereAprobacion = Boolean(usuario?.aprobacion_requerida);
+  const puedeAprobar = (usuario?.permisos?.contabilidad || []).includes("aprobar");
   const [params, setParams] = useSearchParams();
   const [lista, setLista] = useState([]);
   const [cuentas, setCuentas] = useState([]);

@@ -356,6 +356,22 @@ async def nombres_de_usuarios(
     return {str(u["_id"]): u.get("nombre", "") async for u in cursor}
 
 
+@router.get("/firmas/{documento_id}")
+async def firmas_de_documento(
+    documento_id: str,
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(get_current_user),
+):
+    """Quién elaboró y quién aprobó un documento (cualquier módulo), según la auditoría."""
+    db = get_db()
+    base = {"empresa_id": empresa_id, "documento_id": documento_id}
+    creado = await db.auditoria.find_one({**base, "accion": "creado"}, sort=[("fecha_hora", 1)])
+    aprobado = await db.auditoria.find_one({**base, "accion": "aprobado"}, sort=[("fecha_hora", -1)])
+    nombres = await _nombres(empresa_id, {(creado or {}).get("usuario_id"), (aprobado or {}).get("usuario_id")})
+    return {"elaboro": nombres.get((creado or {}).get("usuario_id", ""), ""),
+            "aprobo": nombres.get((aprobado or {}).get("usuario_id", ""), "")}
+
+
 async def _nombres(empresa_id: str, ids: set[str]) -> dict[str, str]:
     ids = {i for i in ids if i}
     if not ids:

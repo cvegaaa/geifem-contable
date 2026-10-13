@@ -29,6 +29,13 @@ router = APIRouter()
 
 async def _validar_cuentas_producto(payload: dict, empresa_id: str) -> None:
     """Cuentas contables e impuestos del producto, según el perfil tributario de la empresa."""
+    # Las cuentas pertenecen al producto: si no se eligen, nace con las de respaldo de la empresa
+    # (los servicios solo necesitan la de ingreso).
+    respaldo = await parametros.obtener(empresa_id)
+    necesarias = ["cuenta_ingreso"] + (["cuenta_inventario", "cuenta_costo"] if payload.get("inventariable", True) is not False else [])
+    for campo in necesarias:
+        if not payload.get(campo):
+            payload[campo] = respaldo[parametros.CUENTAS_PRODUCTO[campo]]
     await parametros.validar_codigos(
         empresa_id, {c: payload.get(c) for c in parametros.CUENTAS_PRODUCTO}
     )

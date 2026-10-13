@@ -106,6 +106,29 @@ _CUENTAS: list[tuple[str, str, str]] = [
     ("6205", "De mercancías", D),
 ]
 
+# Subcuentas auxiliares (6 dígitos) de uso habitual: (codigo, nombre). Heredan la naturaleza de su cuenta.
+_AUXILIARES: list[tuple[str, str]] = [
+    ("110505", "Caja general"), ("110510", "Cajas menores"), ("110515", "Moneda extranjera"),
+    ("111005", "Moneda nacional"), ("111010", "Moneda extranjera"),
+    ("112005", "Cuentas de ahorro nacionales"),
+    ("130505", "Clientes nacionales"), ("130510", "Clientes del exterior"),
+    ("143505", "Mercancías para la venta"),
+    ("220505", "Proveedores nacionales"), ("220510", "Proveedores del exterior"),
+    ("236505", "Salarios y pagos laborales"), ("236510", "Dividendos y participaciones"),
+    ("236515", "Honorarios"), ("236520", "Comisiones"), ("236525", "Servicios"),
+    ("236530", "Arrendamientos"), ("236540", "Compras"), ("236570", "Otras retenciones y patrimonio"),
+    ("240805", "IVA generado"), ("240810", "IVA descontable"),
+    ("280505", "Anticipos de clientes"),
+    ("310505", "Capital autorizado"),
+    ("413505", "Venta de mercancías"), ("413510", "Venta de servicios"),
+    ("613505", "Costo de mercancías vendidas"),
+    ("620505", "Compras de mercancías"),
+    ("510506", "Sueldos"), ("510527", "Auxilio de transporte"), ("510530", "Cesantías"), ("510533", "Intereses sobre cesantías"),
+    ("510536", "Prima de servicios"), ("510539", "Vacaciones"), ("510568", "Aportes a ARL"), ("510569", "Aportes a EPS"),
+    ("510570", "Aportes a fondos de pensiones"), ("510572", "Aportes a cajas de compensación"),
+    ("510575", "Aportes al ICBF"), ("510578", "SENA"),
+]
+
 _NIVEL_POR_LONGITUD = {1: 1, 2: 2, 4: 3, 6: 4}
 
 
@@ -115,8 +138,20 @@ def _padre(codigo: str) -> str | None:
     return codigo[:1] if len(codigo) == 2 else codigo[: len(codigo) - 2]
 
 
+def _auxiliares_completos() -> list[tuple[str, str, str]]:
+    """Auxiliares de 6 dígitos: los definidos a mano y uno «general» (xxxx05) para cada cuenta de 4 dígitos que no tenga."""
+    naturaleza = {c: n for c, _, n in _CUENTAS}
+    nombre = {c: nm for c, nm, _ in _CUENTAS}
+    existentes = {c for c, _ in _AUXILIARES}
+    salida = [(c, nm, naturaleza.get(c[:4], D)) for c, nm in _AUXILIARES if c[:4] in naturaleza]
+    con_aux = {c[:4] for c in existentes}
+    for codigo in sorted(c for c in naturaleza if len(c) == 4 and c not in con_aux):
+        salida.append((f"{codigo}05", f"{nombre[codigo]} (general)", naturaleza[codigo]))
+    return salida
+
+
 def puc_semilla() -> list[dict]:
-    """Cuentas listas para insertar (sin `empresa_id`)."""
+    """Cuentas listas para insertar (sin `empresa_id`): clases, grupos, cuentas (4 dígitos) y auxiliares (6 dígitos)."""
     return [
         {
             "codigo": codigo,
@@ -124,8 +159,8 @@ def puc_semilla() -> list[dict]:
             "naturaleza": naturaleza,
             "nivel": _NIVEL_POR_LONGITUD[len(codigo)],
             "codigo_padre": _padre(codigo),
-            # Solo las cuentas (4 dígitos) reciben movimientos.
+            # Reciben movimientos las cuentas (4 dígitos) y los auxiliares (6 dígitos).
             "acepta_movimientos": len(codigo) >= 4,
         }
-        for codigo, nombre, naturaleza in _CUENTAS
+        for codigo, nombre, naturaleza in [*_CUENTAS, *_auxiliares_completos()]
     ]

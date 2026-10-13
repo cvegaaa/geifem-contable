@@ -18,6 +18,8 @@ import FormasPago from "./modules/configuracion/formas-pago/index.jsx";
 import UsuariosRoles from "./modules/configuracion/usuarios-roles/index.jsx";
 import DatosEmpresa from "./modules/configuracion/datos-empresa/index.jsx";
 import ConceptosRetencion from "./modules/configuracion/conceptos-retencion/index.jsx";
+import RolesPermisos from "./modules/configuracion/roles-permisos/index.jsx";
+import Aprobaciones from "./modules/contabilidad/aprobaciones/index.jsx";
 import TarifasSimple from "./modules/configuracion/tarifas-simple/index.jsx";
 import ImportarDatos from "./modules/configuracion/importar-datos/index.jsx";
 import ParametrosContables from "./modules/configuracion/parametros-contables/index.jsx";
@@ -117,6 +119,7 @@ export default function App() {
           <Route path="parametros-contables" element={<ParametrosContables />} />
           <Route path="conceptos-retencion" element={<ConceptosRetencion />} />
           <Route path="tarifas-simple" element={<TarifasSimple />} />
+          <Route path="roles-permisos" element={<RolesPermisos />} />
           <Route path="importar-datos" element={<ImportarDatos />} />
           <Route path="resoluciones-dian" element={<ResolucionesDian />} />
           <Route path="impuestos" element={<Impuestos />} />
@@ -134,6 +137,7 @@ export default function App() {
           <Route path="comprobante-apertura" element={<ComprobanteApertura />} />
           <Route path="comprobante-cierre" element={<ComprobanteCierre />} />
           <Route path="consulta-comprobantes" element={<ConsultaComprobantes />} />
+          <Route path="aprobaciones" element={<Aprobaciones />} />
           <Route path="cierre-periodos" element={<CierrePeriodos />} />
           <Route path="auditoria-comprobantes" element={<AuditoriaComprobantes />} />
         </Route>

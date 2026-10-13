@@ -173,7 +173,18 @@ Pendiente:
 - [x] Comprobante de cierre: trae los saldos de las cuentas de resultado del periodo, sugiere el asiento contra la utilidad (3605) o pérdida (3610) y permite editarlo.
 - [x] Auditoría con tipo de documento, comprobante, acción y usuario, con filtros.
 
-Pendiente de la revisión de Contabilidad: extender la aprobación a facturas, compras, tesorería y nómina (hoy solo comprobantes contables); incluir en la consulta los documentos anulados de todos los módulos.
+- [x] **Aprobación en todos los módulos**: la petición de un usuario que requiere aprobación (crear, editar o anular facturas, POS, notas, compras, devoluciones, tesorería, anticipos, ajustes de inventario y nómina) queda como solicitud; quien tenga el permiso «Aprobar» del módulo la autoriza (se ejecuta a nombre del solicitante, con el aprobador en la auditoría y en la impresión) o la rechaza con motivo. Pantalla Aprobaciones y aviso en la barra superior.
+
+Pendiente de la revisión de Contabilidad: incluir en la consulta los documentos anulados de todos los módulos.
+
+**Configuración** (observaciones del propietario, 2026-10-13):
+
+- [x] **Roles y permisos**: el acceso depende del rol y se edita en Configuración › Roles y permisos (matriz por módulo con Ver, Crear, Editar, Anular y Aprobar, y la marca «requiere aprobación»); se pueden crear roles propios. Los usuarios ya no tienen permisos individuales: al crear o editar solo eligen el rol.
+- [x] Actividad económica (CIIU) elegida de una lista de la DIAN con búsqueda.
+- [x] Plan de cuentas abierto por defecto hasta el detalle de 6 dígitos (subcuentas auxiliares en el PUC semilla y selector de nivel).
+- [x] Las cuentas se definen donde nace cada cosa: el producto lleva sus cuentas de ingreso, inventario y costo (y sus retenciones) desde su creación; el empleado, sus cuentas de gasto de nómina; la caja y el banco, la suya. «Parámetros contables» pasa a ser «Cuentas por defecto» (respaldo y cuentas comunes).
+- [x] Impuesto al consumo: un solo impuesto con varias tarifas y una cuenta única; el ICA queda aparte.
+- [x] Resoluciones DIAN listas para sincronizar con el portal (tipo de documento, fecha, clave técnica, origen y botón «Sincronizar con la DIAN», que responde que falta el proveedor tecnológico hasta la capa de Alegra).
 
 ### Valor agregado
 
@@ -207,3 +218,4 @@ Detectados en las revisiones; se resuelven en la fase indicada.
 - **2026-10-13 (Fase 2, primer bloque)** — Cartera por edades y estado de cuenta, devoluciones con reingreso a inventario, Formulario 300 reescrito, DV del NIT y selector de cuentas con búsqueda. 70 pruebas en verde.
 - **2026-10-13 (Fase 2, segundo bloque)** — Anticipos, cobros y pagos múltiples, transferencias, formularios SIMPLE 2593 y 260 con tarifas editables, seguimiento de órdenes de compra, devoluciones a proveedor, ajuste retroactivo del costo de venta y facturas electrónicas recibidas con eventos RADIAN. 83 pruebas en verde. Las tarifas SIMPLE son de referencia y requieren verificación del contador.
 - **2026-10-13 (revisión de Contabilidad)** — Tercero por línea, firmas de elaboró y aprobó, flujo de aprobación para el auxiliar, estado de periodos, consulta unificada de todos los módulos, cartera inicial por documento, cierre sugerido y auditoría con usuario y acción.
+- **2026-10-13 (revisión de Configuración y aprobación general)** — Aprobación para todos los módulos con solicitudes que se ejecutan al autorizar, roles y permisos editables, CIIU en lista, plan de cuentas a 6 dígitos, cuentas por producto y por empleado, INC único y resoluciones DIAN listas para sincronizar. 97 pruebas en verde.

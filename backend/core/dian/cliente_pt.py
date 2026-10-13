@@ -23,6 +23,15 @@ class ClientePT(ABC):
     async def consultar_estado(self, empresa_id: str, cufe: str) -> dict[str, Any]:
         """Consulta el estado DIAN de una factura ya enviada."""
 
+    async def listar_resoluciones(self, empresa_id: str) -> list[dict[str, Any]]:
+        """Resoluciones de numeración habilitadas en el portal de la DIAN para la empresa.
+
+        Cada elemento trae, con los nombres del servicio de la DIAN: NumeroResolucion, FechaResolucion, Prefijo,
+        DesdeNumero, HastaNumero, FechaDesde, FechaHasta, ClaveTecnica y TipoDocumento. Los proveedores tecnológicos
+        que lo soporten sobrescriben este método.
+        """
+        raise NotImplementedError("Sincronizar resoluciones requiere conectar el proveedor tecnológico de facturación.")
+
 
 class ClientePTNoConfigurado(ClientePT):
     """Implementación por defecto — lanza error si se invoca sin PT real."""

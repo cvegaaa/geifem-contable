@@ -134,29 +134,40 @@ async def _con_usuario(c, nuevo_cliente, email="cont@a.co", rol="contador"):
     return r.json(), otro
 
 
-async def test_editar_usuario_rol_permisos_y_sesiones(nuevo_cliente):
+async def test_permisos_dependen_del_rol_y_se_editan_en_roles(nuevo_cliente):
     c = await _empresa(nuevo_cliente)
     u, sesion = await _con_usuario(c, nuevo_cliente)
     assert (await sesion.get("/api/nomina/empleados")).status_code == 200
+    assert u["permisos"]["nomina"] and u["rol_nombre"] == "Contador"
 
-    # Quitar el permiso de nómina cierra su sesión y le niega el acceso.
-    permisos = {**u["permisos"], "nomina": []}
-    r = await c.put(f"/api/configuracion/usuarios-roles/{u['id']}", json={
-        "nombre": "Usuario Editado", "rol": "contador", "activo": True, "permisos": permisos})
-    assert r.status_code == 200 and r.json()["nombre"] == "Usuario Editado"
-    assert (await sesion.get("/api/nomina/empleados")).status_code == 401       # sesión cerrada
+    # El acceso se edita en el rol y aplica de inmediato a sus usuarios, sin cerrarles la sesión.
+    catalogo = (await c.get("/api/configuracion/roles")).json()
+    contador = next(r for r in catalogo["roles"] if r["clave"] == "contador")
+    assert contador["usuarios"] == 1 and "aprobar" in catalogo["acciones"]
+    r = await c.put("/api/configuracion/roles/contador", json={
+        "nombre": "Contador", "permisos": {**contador["permisos"], "nomina": []}, "requiere_aprobacion": False})
+    assert r.status_code == 200 and r.json()["permisos"]["nomina"] == []
+    assert (await sesion.get("/api/nomina/empleados")).status_code == 403
+    assert (await sesion.get("/api/auth/me")).json()["permisos"]["nomina"] == []
+
+    # Los roles propios se crean, se asignan y no se borran con usuarios.
+    r = await c.post("/api/configuracion/roles", json={
+        "nombre": "Cajero", "permisos": {"facturacion": ["leer", "crear"], "tesoreria": ["leer"]}, "requiere_aprobacion": True})
+    assert r.status_code == 201 and r.json()["clave"] == "cajero" and r.json()["permisos"]["nomina"] == []
+    assert (await c.post("/api/configuracion/roles", json={"nombre": "Cajero", "permisos": {}})).status_code == 409
+    r = await c.put(f"/api/configuracion/usuarios-roles/{u['id']}", json={"nombre": "U", "rol": "cajero", "activo": True})
+    assert r.status_code == 200 and r.json()["rol_nombre"] == "Cajero" and r.json()["aprobacion_requerida"] is True
+    assert r.json()["permisos"]["facturacion"] == ["leer", "crear"]
+    assert (await c.delete("/api/configuracion/roles/cajero")).status_code == 409
+    assert (await c.delete("/api/configuracion/roles/contador")).status_code == 409           # rol base
+    assert (await c.put(f"/api/configuracion/usuarios-roles/{u['id']}", json={"nombre": "U", "rol": "inventado", "activo": True})).status_code == 422
+    assert (await c.put("/api/configuracion/roles/admin", json={"nombre": "xx", "permisos": {}})).status_code == 409
+    assert (await c.post("/api/configuracion/roles", json={"nombre": "Raro", "permisos": {"magia": ["leer"]}})).status_code == 422
+    # Un usuario sin ser administrador no cambia roles.
     nueva = nuevo_cliente()
     await nueva.post("/api/auth/login", json={"email": "cont@a.co", "password": "clave-segura-1"})
     nueva.headers["X-Empresa-Id"] = c.headers["X-Empresa-Id"]
-    assert (await nueva.get("/api/nomina/empleados")).status_code == 403
-
-    # Cambiar de rol sin enviar permisos aplica la plantilla del rol.
-    r = await c.put(f"/api/configuracion/usuarios-roles/{u['id']}", json={"nombre": "U", "rol": "vendedor", "activo": True})
-    assert r.json()["permisos"]["nomina"] == [] and "crear" in r.json()["permisos"]["facturacion"]
-    # Permisos inválidos se rechazan.
-    r = await c.put(f"/api/configuracion/usuarios-roles/{u['id']}", json={
-        "nombre": "U", "rol": "vendedor", "activo": True, "permisos": {"magia": ["leer"]}})
-    assert r.status_code == 422
+    assert (await nueva.put("/api/configuracion/roles/cajero", json={"nombre": "Cajero", "permisos": {}})).status_code == 403
 
 
 async def test_no_se_puede_dejar_la_empresa_sin_administrador(nuevo_cliente):

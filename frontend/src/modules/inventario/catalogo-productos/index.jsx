@@ -92,12 +92,12 @@ export default function Page() {
         },
 
         {
-          seccion: "Cuentas contables (opcional)",
-          hint: "Déjalas vacías para usar las de Configuración › Parámetros contables.",
+          seccion: "Cuentas contables del producto",
+          hint: "Cada producto o servicio lleva sus propias cuentas: aquí se define dónde se contabiliza su ingreso, su inventario y su costo. Si facturas varias actividades, usa una cuenta de ingreso distinta para cada una. Ya vienen sugeridas con las cuentas por defecto de la empresa; cámbialas si este producto va a otra.",
         },
-        { key: "cuenta_ingreso", label: "Cuenta de ingreso por venta", type: "cuenta", prefijos: ["4"], vacio: "Usar la de la empresa" },
-        { key: "cuenta_inventario", label: "Cuenta de inventario", type: "cuenta", prefijos: ["14"], vacio: "Usar la de la empresa" },
-        { key: "cuenta_costo", label: "Cuenta de costo de venta", type: "cuenta", prefijos: ["6", "7"], vacio: "Usar la de la empresa" },
+        { key: "cuenta_ingreso", label: "Cuenta de ingreso por venta", type: "cuenta", prefijos: ["4"], required: true, defectoParametro: "ingresos", vacio: "Seleccionar cuenta de ingreso" },
+        { key: "cuenta_inventario", label: "Cuenta de inventario (solo si controla inventario)", type: "cuenta", prefijos: ["14"], defectoParametro: "inventario", vacio: "Sin inventario (servicio)" },
+        { key: "cuenta_costo", label: "Cuenta de costo de venta (solo si controla inventario)", type: "cuenta", prefijos: ["6", "7"], defectoParametro: "costo_venta", vacio: "Sin costo (servicio)" },
       ]}
     />
   );

@@ -119,13 +119,14 @@ function Documento({ vista }) {
   const n = normalizar(vista.tipo, vista.doc, cuentas);
   // Quién elaboró y quién aprobó el documento (nombre del usuario).
   const [nombres, setNombres] = useState({});
+  const idDoc = vista.doc.documento_id || vista.doc.id;
   useEffect(() => {
-    const ids = [vista.doc.creado_por, vista.doc.aprobado_por].filter(Boolean);
-    if (!ids.length) return;
-    api.get("/api/contabilidad/usuarios-nombres", { params: { ids: ids.join(",") } }).then((r) => setNombres(r.data)).catch(() => {});
-  }, [vista.doc.creado_por, vista.doc.aprobado_por]);
-  const elaboro = vista.doc.elaboro || nombres[vista.doc.creado_por] || "";
-  const aprobo = vista.doc.aprobo || nombres[vista.doc.aprobado_por] || "";
+    if (!idDoc || vista.doc.elaboro) return;
+    // La auditoría sabe quién registró el documento y quién lo aprobó (en cualquier módulo).
+    api.get(`/api/contabilidad/firmas/${idDoc}`).then((r) => setNombres(r.data)).catch(() => {});
+  }, [idDoc, vista.doc.elaboro]);
+  const elaboro = vista.doc.elaboro || nombres.elaboro || "";
+  const aprobo = vista.doc.aprobo || nombres.aprobo || "";
   return (
     <div className="imprimible relative bg-white p-6 text-sm text-slate-800">
       {n.estado === "anulado" && (

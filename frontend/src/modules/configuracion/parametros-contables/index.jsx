@@ -61,11 +61,12 @@ export default function Page() {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="text-xl font-bold text-geifem-navy mb-1">Parámetros contables</h1>
+      <h1 className="text-xl font-bold text-geifem-navy mb-1">Cuentas por defecto</h1>
       <p className="text-sm text-slate-500 mb-4">
-        Define qué cuenta usa cada asiento automático. Un producto, una caja o un banco con cuenta propia
-        tiene prioridad sobre estos valores. Si necesitas una subcuenta (p. ej. 130505), créala primero en
-        Plan de cuentas.
+        Cuentas de respaldo de los asientos automáticos. La cuenta de cada operación se define donde nace:
+        el <b>ingreso, el inventario, el costo y las retenciones</b> en cada producto o servicio; el <b>gasto de nómina</b> en cada empleado;
+        el <b>efectivo</b> en cada caja y banco. Estas cuentas solo se usan cuando ese producto, empleado, caja o banco no tiene la suya,
+        y para las cuentas comunes (clientes, proveedores, IVA, retenciones por pagar…). Si necesitas una subcuenta, créala primero en Plan de cuentas.
       </p>
       <Avisos error={error} mensaje={mensaje} />
 

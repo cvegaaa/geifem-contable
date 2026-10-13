@@ -20,11 +20,11 @@ PERMISOS_POR_ROL: dict[str, dict[str, list[str]]] = {
     "contador": {
         "configuracion": ["leer", "crear", "editar", "inactivar"],
         "contabilidad": ACCIONES.copy(),
-        "facturacion": ["leer"],
-        "inventario": ["leer"],
+        "facturacion": ["leer", "aprobar"],
+        "inventario": ["leer", "aprobar"],
         "reportes": ["leer", "crear"],
-        "compras": ["leer"],
-        "tesoreria": ["leer"],
+        "compras": ["leer", "aprobar"],
+        "tesoreria": ["leer", "aprobar"],
         "nomina": ACCIONES.copy(),
     },
     # Auxiliar contable: registra comprobantes, pero un administrador o contador debe aprobarlos.

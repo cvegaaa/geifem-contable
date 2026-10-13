@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../../../core/api.js";
 import { useAuth } from "../../auth/AuthContext.jsx";
 import { useEmpresa } from "../../../core/EmpresaContext.jsx";
@@ -8,8 +9,20 @@ import FormField, { Input } from "../FormField/index.jsx";
 import Logo from "../Logo/index.jsx";
 
 export default function Topbar({ onMenu }) {
-  const { usuario, logout } = useAuth();
+  const { usuario, logout, refrescarUsuario } = useAuth();
   const { empresas, empresaId, cambiarEmpresa } = useEmpresa();
+  const [porAprobar, setPorAprobar] = useState(0);
+  const apruebaAlgo = Object.values(usuario?.permisos || {}).some((acc) => acc.includes("aprobar"));
+
+  // Aviso de documentos que esperan la aprobación de este usuario.
+  useEffect(() => {
+    if (!apruebaAlgo || !empresaId) return undefined;
+    const cargar = () => api.get("/api/aprobaciones/contar").then((r) => setPorAprobar(r.data.pendientes)).catch(() => {});
+    cargar();
+    const t = setInterval(cargar, 60000);
+    window.addEventListener("aprobaciones:cambio", cargar);
+    return () => { clearInterval(t); window.removeEventListener("aprobaciones:cambio", cargar); };
+  }, [apruebaAlgo, empresaId]);
   const [cuenta, setCuenta] = useState(false);
   const [claves, setClaves] = useState({ actual: "", nueva: "", repetir: "" });
   const [error, setError] = useState(null);
@@ -47,7 +60,7 @@ export default function Topbar({ onMenu }) {
           <label className="hidden md:block text-xs text-slate-500 uppercase">Empresa:</label>
           <select
             value={empresaId || ""}
-            onChange={(e) => cambiarEmpresa(e.target.value || null)}
+            onChange={(e) => { cambiarEmpresa(e.target.value || null); refrescarUsuario().catch(() => {}); }}
             className="border border-slate-300 rounded-sm px-2 py-1 text-sm max-w-44 sm:max-w-xs truncate"
           >
             {empresas.map((e) => (
@@ -59,6 +72,12 @@ export default function Topbar({ onMenu }) {
         </div>
       </div>
       <div className="flex items-center gap-2 md:gap-4">
+        {(apruebaAlgo || usuario?.aprobacion_requerida) && (
+          <Link to="/contabilidad/aprobaciones" className="relative text-sm text-slate-600 hover:text-geifem-navy" title="Aprobaciones">
+            Aprobaciones
+            {porAprobar > 0 && <span className="ml-1 inline-block min-w-5 text-center text-[11px] bg-amber-500 text-white rounded-full px-1">{porAprobar}</span>}
+          </Link>
+        )}
         <button onClick={() => setCuenta(true)} className="text-sm text-right hover:opacity-80" title="Mi cuenta">
           <div className="font-medium text-slate-800 max-w-28 sm:max-w-none truncate">{usuario?.nombre}</div>
           <div className="text-xs text-geifem-blue uppercase">{usuario?.rol}</div>

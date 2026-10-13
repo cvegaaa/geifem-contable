@@ -1,4 +1,8 @@
 import FormField, { Input, Select } from "../layout/FormField/index.jsx";
+import SelectorLista from "../layout/SelectorLista/index.jsx";
+import CIIU from "../../core/ciiu.js";
+
+const OPCIONES_CIIU = CIIU.map((c) => ({ valor: c.codigo, etiqueta: `${c.codigo} — ${c.nombre}` }));
 
 export const EMPRESA_VACIA = {
   nit: "",
@@ -137,13 +141,10 @@ export default function EmpresaForm({ value, onChange, disabled = false }) {
         </FormField>
       </div>
       <div className="sm:col-span-3">
-        <FormField label="Actividad CIIU" hint="4 dígitos">
-          <Input
-            maxLength={4}
-            inputMode="numeric"
-            value={value.actividad_ciiu || ""}
-            disabled={disabled}
-            onChange={(e) => set("actividad_ciiu", e.target.value.replace(/\D/g, ""))}
+        <FormField label="Actividad económica (CIIU)" hint="Elige de la lista de la DIAN (Resolución 139 de 2012): busca por código o por nombre">
+          <SelectorLista
+            opciones={OPCIONES_CIIU} value={value.actividad_ciiu || ""} disabled={disabled}
+            placeholder="Buscar por código o actividad…" onChange={(v) => set("actividad_ciiu", v)}
           />
         </FormField>
       </div>
