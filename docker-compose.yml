@@ -1,0 +1,62 @@
+# Stack completo de GEIFEM Contable (local y referencia para el VPS).
+#   Desarrollo: docker compose up -d mongo   (backend y frontend corren fuera de Docker)
+#   Todo junto: docker compose up -d --build (abre http://localhost:8080)
+name: geifem
+
+services:
+  mongo:
+    build: ./infra/mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USUARIO:-geifem}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Define MONGO_PASSWORD en .env}
+    volumes:
+      - mongo_datos:/data/db
+      - mongo_config:/data/configdb
+    ports:
+      # Solo accesible desde la propia máquina (para desarrollo y respaldos).
+      - "127.0.0.1:${MONGO_PUERTO:-27017}:27017"
+
+  respaldo:
+    build: ./infra/respaldo
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://${MONGO_USUARIO:-geifem}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
+      RESPALDO_HORA: ${RESPALDO_HORA:-03:00}
+      RESPALDO_DIAS: ${RESPALDO_DIAS:-14}
+      RESPALDO_RCLONE: ${RESPALDO_RCLONE:-}
+    volumes:
+      - respaldos:/respaldos
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      ENTORNO: ${ENTORNO:-produccion}
+      MONGO_URI: mongodb://${MONGO_USUARIO:-geifem}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
+      DB_NAME: ${DB_NAME:-geifem_contable}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      REGISTRO_ABIERTO: ${REGISTRO_ABIERTO:-true}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${PUERTO_WEB:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  respaldos:
+  mongo_datos:
+  mongo_config:
