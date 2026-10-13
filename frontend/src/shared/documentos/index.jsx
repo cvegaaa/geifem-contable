@@ -18,12 +18,14 @@ export const numeroDoc = (d) => d?.numero || `${d?.prefijo || ""}${d?.consecutiv
 const ESTILOS_ESTADO = {
   anulado: "bg-red-50 text-red-700 border-red-200",
   borrador: "bg-amber-50 text-amber-700 border-amber-200",
+  por_aprobar: "bg-amber-50 text-amber-700 border-amber-200",
+  rechazado: "bg-red-50 text-red-700 border-red-200",
 };
 
 export function EstadoBadge({ estado }) {
   if (!estado) return null;
   const clase = ESTILOS_ESTADO[estado] || "bg-emerald-50 text-emerald-700 border-emerald-200";
-  return <span className={`inline-block text-[11px] border rounded-sm px-1.5 py-0.5 first-letter:uppercase ${clase}`}>{estado}</span>;
+  return <span className={`inline-block text-[11px] border rounded-sm px-1.5 py-0.5 first-letter:uppercase ${clase}`}>{String(estado).replace("_", " ")}</span>;
 }
 
 /**

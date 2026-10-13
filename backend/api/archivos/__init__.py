@@ -213,10 +213,15 @@ PLANTILLAS = {
         "columnas": [
             ("cuenta", "Código de cuenta *"), ("descripcion", "Descripción"), ("debito", "Débito"), ("credito", "Crédito"),
             ("tercero_documento", "Documento del tercero (opcional)"),
+            ("documento", "Número del documento (cartera)"), ("fecha_documento", "Fecha del documento (cartera)"),
+            ("vencimiento", "Vencimiento (cartera)"),
         ],
-        "ejemplo": ["1110", "Saldo en bancos", 5000000, None, None],
+        "ejemplo": ["1110", "Saldo en bancos", 5000000, None, None, None, None, None],
         "ayuda": ["Genera un comprobante de apertura contabilizado. Débitos y créditos deben cuadrar.",
-                  "Indica la fecha de apertura al importar. Cada línea lleva débito o crédito, no ambos."],
+                  "Indica la fecha de apertura al importar. Cada línea lleva débito o crédito, no ambos.",
+                  "CARTERA: las líneas de la cuenta de clientes (débito) y de proveedores (crédito) deben llevar el documento del tercero y el "
+                  "número de la factura; así quedan como cuentas por cobrar o por pagar por documento, con su fecha y vencimiento, y aparecen en "
+                  "Tesorería, en la antigüedad de cartera y en los reportes. Una línea por factura pendiente."],
     },
 }
 
@@ -438,8 +443,12 @@ async def _importar_saldos(empresa_id: str, usuario: dict, filas, simular: bool,
                 tercero_id = terceros.get(doc[:-2] if doc.endswith(".0") else doc)
                 if not tercero_id:
                     raise ValueError(f"el tercero {doc} no existe: impórtalo primero")
+            documento = _texto(f.get("documento"))
             lineas.append({"cuenta_puc_id": str(cuenta["_id"]), "debito": deb, "credito": cre,
-                           "tercero_id": tercero_id, "descripcion": _texto(f.get("descripcion"))})
+                           "tercero_id": tercero_id, "descripcion": _texto(f.get("descripcion")),
+                           "documento_numero": documento[:-2] if documento and documento.endswith(".0") else documento,
+                           "fecha_documento": _fecha(f.get("fecha_documento")),
+                           "fecha_vencimiento": _fecha(f.get("vencimiento"))})
         except ValueError as exc:
             errores.append({"fila": n, "mensaje": str(exc)})
     total_deb = sum(centavos(l["debito"]) for l in lineas)

@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from core import parametros
+from core import cartera, parametros
 from core.auth.dependencies import get_empresa_activa, require_permiso
 from core.documentos import (
     NO_ANULADO,
@@ -255,7 +255,7 @@ async def listar_bancos(
 async def _cartera(empresa_id: str) -> dict:
     db = get_db()
     cxc, cxp = [], []
-    async for f in db.facturas.find({"empresa_id": empresa_id, **NO_ANULADO}).sort("fecha", 1):
+    async for f in cartera.iterar(db, empresa_id, "cxc"):
         total = float(f.get("total", 0))
         saldo = float(f.get("saldo_pendiente", total))
         if saldo <= 0.009:
@@ -267,7 +267,7 @@ async def _cartera(empresa_id: str) -> dict:
             "fecha": f.get("fecha"), "vencimiento": f.get("fecha_vencimiento"),
             "total": redondear(total, 2), "saldo": redondear(saldo, 2),
         })
-    async for f in db.facturas_proveedor.find({"empresa_id": empresa_id, **NO_ANULADO}).sort("fecha", 1):
+    async for f in cartera.iterar(db, empresa_id, "cxp"):
         total = float(f.get("total_a_pagar", f.get("total", 0)))
         saldo = float(f.get("saldo_pendiente", total))
         if saldo <= 0.009:
@@ -359,10 +359,9 @@ async def estado_cuenta(
     """Estado de cuenta de un tercero: facturas con su saldo y los pagos aplicados."""
     db = get_db()
     es_cxc = tipo == "cxc"
-    coleccion = "facturas" if es_cxc else "facturas_proveedor"
     campo_tercero = "cliente_id" if es_cxc else "proveedor_id"
     facturas, total, saldo = [], 0.0, 0.0
-    async for f in db[coleccion].find({"empresa_id": empresa_id, campo_tercero: tercero_id, **NO_ANULADO}).sort("fecha", 1):
+    async for f in cartera.iterar(db, empresa_id, tipo, {campo_tercero: tercero_id}):
         t = float(f.get("total", 0) if es_cxc else f.get("total_a_pagar", f.get("total", 0)))
         sd = float(f.get("saldo_pendiente", t))
         facturas.append({
@@ -414,10 +413,8 @@ async def _aplicar_pago(empresa_id: str, pid: str, pago: dict, usuario_id: str, 
     """Baja el saldo de la factura, crea el movimiento de caja/banco y el asiento."""
     db = get_db()
     cuenta = await _validar_cuenta(db, empresa_id, pago["cuenta_tipo"], pago["cuenta_id"], s)
-    coleccion = "facturas" if pago["documento_tipo"] == "cxc" else "facturas_proveedor"
-    factura = await db[coleccion].find_one(
-        {"_id": oid(pago["documento_id"], "documento_id"), "empresa_id": empresa_id, **NO_ANULADO}, session=s
-    )
+    coleccion, factura = await cartera.buscar(
+        db, pago["documento_tipo"], pago["documento_id"], empresa_id, s, NO_ANULADO)
     if not factura:
         raise HTTPException(404, "Factura no encontrada o anulada")
     total = float(factura.get("total_a_pagar", factura.get("total", 0)) if pago["documento_tipo"] == "cxp"
@@ -476,10 +473,7 @@ async def _validar_cuenta_tesoreria(payload: dict, empresa_id: str) -> None:
 async def _revertir_pago(empresa_id: str, pago: dict, s) -> None:
     db = get_db()
     pid = str(pago["_id"])
-    coleccion = "facturas" if pago["documento_tipo"] == "cxc" else "facturas_proveedor"
-    factura = await db[coleccion].find_one(
-        {"_id": oid(pago["documento_id"]), "empresa_id": empresa_id}, session=s
-    )
+    coleccion, factura = await cartera.buscar(db, pago["documento_tipo"], pago["documento_id"], empresa_id, s)
     if factura:
         saldo = redondear(float(factura.get("saldo_pendiente", 0)) + pago["valor"], 2)
         await db[coleccion].update_one(

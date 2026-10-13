@@ -160,6 +160,21 @@ Pendiente:
 - [ ] Contratos especiales (aprendices, tiempo parcial con cotización especial, pensionados).
 - [ ] Revisión de las cifras y reglas por un contador laboralista antes de operar con datos reales.
 
+### Revisión módulo por módulo
+
+**Contabilidad** (observaciones del propietario, 2026-10-13):
+
+- [x] Tercero por línea en los comprobantes (por defecto el del encabezado, modificable).
+- [x] Impresión con «Elaboró» y «Aprobó» (nombre del usuario) en todos los documentos.
+- [x] **Aprobación**: rol «Auxiliar contable» (o marca «requiere aprobación» por usuario); sus comprobantes quedan «por aprobar» sin afectar el libro hasta que un administrador, un contador o quien tenga el permiso «Aprobar» los apruebe o rechace con motivo.
+- [x] Cierre de periodos con el estado de cada mes y año (abierto, cerrado, parcial, futuro), documentos y pendientes por mes.
+- [x] Consulta de comprobantes de **todos los módulos** (ventas, compras, cartera, tesorería, inventario, nómina…) con su comprobante contable, terceros, quién lo elaboró y aprobó, e impresión.
+- [x] **Saldos iniciales de cartera**: la apertura (manual o importada) detalla clientes y proveedores por tercero, documento, fecha y vencimiento; quedan como CxC y CxP en Tesorería, antigüedad, estado de cuenta, reportes y exógena, y se pueden cobrar o pagar.
+- [x] Comprobante de cierre: trae los saldos de las cuentas de resultado del periodo, sugiere el asiento contra la utilidad (3605) o pérdida (3610) y permite editarlo.
+- [x] Auditoría con tipo de documento, comprobante, acción y usuario, con filtros.
+
+Pendiente de la revisión de Contabilidad: extender la aprobación a facturas, compras, tesorería y nómina (hoy solo comprobantes contables); incluir en la consulta los documentos anulados de todos los módulos.
+
 ### Valor agregado
 
 - [ ] Exógena, Formulario 350, libros oficiales.
@@ -191,3 +206,4 @@ Detectados en las revisiones; se resuelven en la fase indicada.
 - **2026-10-13 (cierre de la Fase 0)** — Límite de intentos de login, respaldo con restauración verificada, CI, CSP/HSTS y cambio de contraseña; cierre de periodos; redondeo exacto al centavo; vista imprimible, exportación e importación Excel, búsqueda y paginación, administración de usuarios y menú móvil. 65 pruebas en verde. Cambio de decisión: dinero con redondeo al centavo en lugar de `Decimal128`; paginación en el cliente por ahora. Orden acordado: funcionalidad general → detalle por módulo → capa de Alegra → agentes MCP. La revisión contable la hace el propietario.
 - **2026-10-13 (Fase 2, primer bloque)** — Cartera por edades y estado de cuenta, devoluciones con reingreso a inventario, Formulario 300 reescrito, DV del NIT y selector de cuentas con búsqueda. 70 pruebas en verde.
 - **2026-10-13 (Fase 2, segundo bloque)** — Anticipos, cobros y pagos múltiples, transferencias, formularios SIMPLE 2593 y 260 con tarifas editables, seguimiento de órdenes de compra, devoluciones a proveedor, ajuste retroactivo del costo de venta y facturas electrónicas recibidas con eventos RADIAN. 83 pruebas en verde. Las tarifas SIMPLE son de referencia y requieren verificación del contador.
+- **2026-10-13 (revisión de Contabilidad)** — Tercero por línea, firmas de elaboró y aprobó, flujo de aprobación para el auxiliar, estado de periodos, consulta unificada de todos los módulos, cartera inicial por documento, cierre sugerido y auditoría con usuario y acción.

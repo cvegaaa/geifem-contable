@@ -166,8 +166,9 @@ async def crear_usuario(
 
 class UsuarioEditar(BaseModel):
     nombre: str = Field(min_length=1, max_length=120)
-    rol: Literal["admin", "contador", "vendedor"]
+    rol: Literal["admin", "contador", "auxiliar", "vendedor"]
     activo: bool = True
+    requiere_aprobacion: bool | None = None
     empresa_ids: list[str] | None = None
     permisos: dict[str, list[str]] | None = None
 
@@ -221,6 +222,7 @@ async def editar_usuario(
     elif payload.rol != u.get("rol"):
         permisos = permisos_base(payload.rol)   # al cambiar de rol se aplica su plantilla
     cambios: dict = {"nombre": payload.nombre, "rol": payload.rol, "activo": payload.activo,
+                     "requiere_aprobacion": payload.requiere_aprobacion,
                      "fecha_actualizacion": datetime.now(timezone.utc)}
     if permisos is not None:
         cambios["permisos"] = permisos

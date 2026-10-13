@@ -12,7 +12,8 @@ MODULOS = [
     "nomina",
 ]
 
-ACCIONES = ["leer", "crear", "editar", "inactivar"]
+# "aprobar": autoriza los documentos de quienes requieren aprobación (hoy, comprobantes contables).
+ACCIONES = ["leer", "crear", "editar", "inactivar", "aprobar"]
 
 PERMISOS_POR_ROL: dict[str, dict[str, list[str]]] = {
     "admin": {m: ACCIONES.copy() for m in MODULOS},
@@ -25,6 +26,17 @@ PERMISOS_POR_ROL: dict[str, dict[str, list[str]]] = {
         "compras": ["leer"],
         "tesoreria": ["leer"],
         "nomina": ACCIONES.copy(),
+    },
+    # Auxiliar contable: registra comprobantes, pero un administrador o contador debe aprobarlos.
+    "auxiliar": {
+        "configuracion": ["leer"],
+        "contabilidad": ["leer", "crear", "editar"],
+        "facturacion": ["leer"],
+        "inventario": ["leer"],
+        "reportes": ["leer"],
+        "compras": ["leer"],
+        "tesoreria": ["leer"],
+        "nomina": [],
     },
     "vendedor": {
         "configuracion": ["leer"],

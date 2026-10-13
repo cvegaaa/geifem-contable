@@ -9,13 +9,14 @@ import { Avisos, mensajeError } from "../../../shared/documentos/index.jsx";
 const ROLES = [
   { valor: "admin", etiqueta: "Administrador" },
   { valor: "contador", etiqueta: "Contador" },
+  { valor: "auxiliar", etiqueta: "Auxiliar contable (requiere aprobación)" },
   { valor: "vendedor", etiqueta: "Vendedor" },
 ];
 const MODULOS = [
   ["configuracion", "Configuración"], ["contabilidad", "Contabilidad"], ["facturacion", "Facturación"], ["inventario", "Inventario"],
   ["compras", "Compras"], ["tesoreria", "Tesorería"], ["nomina", "Nómina"], ["reportes", "Reportes"],
 ];
-const ACCIONES = [["leer", "Ver"], ["crear", "Crear"], ["editar", "Editar"], ["inactivar", "Anular"]];
+const ACCIONES = [["leer", "Ver"], ["crear", "Crear"], ["editar", "Editar"], ["inactivar", "Anular"], ["aprobar", "Aprobar"]];
 
 const FORM_NUEVO = { nombre: "", email: "", password: "", rol: "vendedor", empresa_ids: [], activo: true };
 
@@ -94,6 +95,7 @@ export default function Page() {
       await api.put(`/api/configuracion/usuarios-roles/${edicion.id}`, {
         nombre: edicion.nombre, rol: edicion.rol, activo: edicion.activo,
         permisos: edicion.permisos, empresa_ids: edicion.empresa_ids,
+        requiere_aprobacion: edicion.requiere_aprobacion ?? null,
       });
       setMensaje(`Usuario ${edicion.email} actualizado. Si cambiaste su rol o permisos, su sesión se cerró.`);
       setEdicion(null);
@@ -210,6 +212,13 @@ export default function Page() {
               <input type="checkbox" checked={edicion.activo} onChange={(e) => setEdicion({ ...edicion, activo: e.target.checked })} />
               Usuario activo (si lo desactivas, no podrá ingresar)
             </label>
+            <label className="flex items-center gap-2 text-sm mb-1">
+              <input type="checkbox"
+                checked={edicion.requiere_aprobacion ?? edicion.rol === "auxiliar"}
+                onChange={(e) => setEdicion({ ...edicion, requiere_aprobacion: e.target.checked })} />
+              Sus comprobantes requieren aprobación de un contador o administrador
+            </label>
+            <p className="text-xs text-slate-500 mb-3">«Aprobar» en Contabilidad permite autorizar los comprobantes de quienes requieren aprobación (administradores y contadores siempre pueden).</p>
             <h4 className="text-sm font-semibold text-slate-700 mb-1">Permisos por módulo</h4>
             <div className="border border-slate-200 rounded-sm overflow-hidden mb-3">
               <table className="w-full text-sm">

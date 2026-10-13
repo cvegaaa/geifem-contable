@@ -18,6 +18,9 @@ const NOMBRES = {
   pago: "Pago",
   movimiento: "Movimiento de tesorería",
   comprobante: "Comprobante contable",
+  asientos: "Comprobante contable",
+  anticipo: "Anticipo",
+  transferencia: "Transferencia",
 };
 
 const cols = {
@@ -72,6 +75,13 @@ function normalizar(tipo, d, cuentas) {
       totales: [t("Valor", d.valor, false, true), t("Saldo del documento", d.saldo_resultante)], firmas: true,
     };
   }
+  if (tipo === "asientos") {
+    return {
+      ...base, titulo: d.tipo_nombre || "Comprobante contable", tercero: null, items: d.lineas,
+      columnas: [["cuenta_codigo", "Cuenta"], ["cuenta_nombre", "Nombre"], ["tercero", "Tercero"], ["debito", "Débito", true], ["credito", "Crédito", true]],
+      datos: [], totales: [t("Total débitos", d.total_debito, false, true), t("Total créditos", d.total_credito, false, true)], firmas: true,
+    };
+  }
   if (tipo === "anticipo") {
     const cli = d.tipo === "cliente";
     return { ...base, titulo: cli ? "Recibo de anticipo de cliente" : "Comprobante de anticipo a proveedor", tercero: [cli ? "Recibido de" : "Entregado a", d.tercero_nombre],
@@ -107,6 +117,15 @@ function Documento({ vista }) {
     if (vista.tipo === "comprobante") api.get("/api/configuracion/plan-cuentas").then((r) => setCuentas(r.data)).catch(() => {});
   }, [vista.tipo]);
   const n = normalizar(vista.tipo, vista.doc, cuentas);
+  // Quién elaboró y quién aprobó el documento (nombre del usuario).
+  const [nombres, setNombres] = useState({});
+  useEffect(() => {
+    const ids = [vista.doc.creado_por, vista.doc.aprobado_por].filter(Boolean);
+    if (!ids.length) return;
+    api.get("/api/contabilidad/usuarios-nombres", { params: { ids: ids.join(",") } }).then((r) => setNombres(r.data)).catch(() => {});
+  }, [vista.doc.creado_por, vista.doc.aprobado_por]);
+  const elaboro = vista.doc.elaboro || nombres[vista.doc.creado_por] || "";
+  const aprobo = vista.doc.aprobo || nombres[vista.doc.aprobado_por] || "";
   return (
     <div className="imprimible relative bg-white p-6 text-sm text-slate-800">
       {n.estado === "anulado" && (
@@ -167,8 +186,9 @@ function Documento({ vista }) {
       </div>
       {n.observaciones && <p className="mt-3 text-xs text-slate-600"><b>Observaciones:</b> {n.observaciones}</p>}
       {n.firmas && (
-        <div className="grid grid-cols-2 gap-12 mt-14 text-xs text-slate-500">
-          <div className="border-t border-slate-400 pt-1 text-center">Elaboró</div>
+        <div className="grid grid-cols-3 gap-8 mt-14 text-xs text-slate-500">
+          <div className="border-t border-slate-400 pt-1 text-center">Elaboró<div className="text-slate-800 font-medium">{elaboro}</div></div>
+          <div className="border-t border-slate-400 pt-1 text-center">Aprobó<div className="text-slate-800 font-medium">{aprobo}</div></div>
           <div className="border-t border-slate-400 pt-1 text-center">Recibió / firma y sello</div>
         </div>
       )}

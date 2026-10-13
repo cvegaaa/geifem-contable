@@ -16,7 +16,7 @@ const TIPOS = [
   },
   {
     clave: "saldos-iniciales", titulo: "Saldos iniciales", icono: "Apertura contable",
-    ayuda: "Saldos por cuenta contable (con tercero opcional). Genera un comprobante de apertura contabilizado; debe cuadrar.",
+    ayuda: "Saldos por cuenta contable (con tercero opcional). Genera un comprobante de apertura contabilizado; debe cuadrar. Las líneas de clientes (débito) y proveedores (crédito) llevan tercero y número de factura, con fecha y vencimiento: así quedan como cuentas por cobrar y por pagar por documento.",
     conFecha: true,
   },
 ];

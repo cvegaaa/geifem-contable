@@ -226,3 +226,33 @@ async def auditar(
         },
         session=s,
     )
+
+
+# Nombre legible y pantalla de cada tipo de documento que escribe en el libro o en la auditoría.
+NOMBRES_DOCUMENTO: dict[str, tuple[str, str | None]] = {
+    "comprobante": ("Comprobante contable", "/contabilidad/consulta-comprobantes"),
+    "factura": ("Factura de venta", "/facturacion/factura-venta"),
+    "pos": ("Documento equivalente POS", "/facturacion/documento-equivalente-pos"),
+    "nota": ("Nota crédito/débito", "/facturacion/notas-credito-debito"),
+    "orden_compra": ("Orden de compra", "/compras/ordenes-compra"),
+    "recepcion": ("Entrada de mercancía", "/compras/recepcion-mercancia"),
+    "factura_proveedor": ("Factura de proveedor", "/compras/facturas-proveedor"),
+    "factura_recibida": ("Factura electrónica recibida", "/compras/facturas-recibidas"),
+    "devolucion_proveedor": ("Devolución a proveedor", "/compras/devoluciones-proveedor"),
+    "movimiento_tesoreria": ("Movimiento de caja/banco", "/tesoreria/caja"),
+    "pago": ("Recibo de caja / comprobante de egreso", "/tesoreria/cxc-cxp"),
+    "anticipo": ("Anticipo", "/tesoreria/anticipos"),
+    "aplicacion_anticipo": ("Aplicación de anticipo", "/tesoreria/anticipos"),
+    "transferencia": ("Transferencia entre cuentas", "/tesoreria/transferencias"),
+    "cartera_inicial": ("Saldo inicial de cartera", "/tesoreria/cxc-cxp"),
+    "ajuste_inventario": ("Ajuste de inventario", "/inventario/ajustes-inventario"),
+    "ajuste_costo": ("Ajuste de costo de venta", None),
+    "saldo_inicial": ("Saldo inicial de caja o banco", "/tesoreria/caja"),
+    "nomina_periodo": ("Liquidación de nómina", "/nomina/periodos"),
+    "pago_nomina": ("Pago de nómina", "/nomina/periodos"),
+    "pago_obligacion": ("Pago de prestaciones / aportes", "/nomina/prestaciones"),
+    "nomina_liquidacion_final": ("Liquidación de contrato", "/nomina/liquidacion-contrato"),
+    "cuenta_caja": ("Caja", "/tesoreria/caja"),
+    "cuenta_banco": ("Cuenta bancaria", "/tesoreria/bancos"),
+    "cierre_periodo": ("Cierre de periodo", "/contabilidad/cierre-periodos"),
+}

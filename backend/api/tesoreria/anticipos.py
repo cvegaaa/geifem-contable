@@ -10,7 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from core import parametros
+from core import cartera, parametros
 from core.auth.dependencies import get_empresa_activa, require_permiso
 from core.documentos import (
     NO_ANULADO,
@@ -188,9 +188,7 @@ async def aplicar_anticipo(
     async def _tx(s):
         ant = await cargar_editable("anticipos", empresa_id, aid, s)
         es_cli = ant["tipo"] == "cliente"
-        coleccion = "facturas" if es_cli else "facturas_proveedor"
-        factura = await db[coleccion].find_one(
-            {"_id": oid(payload.documento_id, "documento_id"), "empresa_id": empresa_id, **NO_ANULADO}, session=s)
+        coleccion, factura = await cartera.buscar(db, ant["tipo"], payload.documento_id, empresa_id, s, NO_ANULADO)
         if not factura:
             raise HTTPException(404, "Factura no encontrada o anulada")
         if (factura.get("cliente_id") if es_cli else factura.get("proveedor_id")) != ant["tercero_id"]:
@@ -219,14 +217,14 @@ async def aplicar_anticipo(
                "creado_por": usuario["id"], "fecha_creacion": ahora()}
         res = await db.aplicaciones_anticipo.insert_one(doc, session=s)
         params = await parametros.obtener(empresa_id, s)
-        cartera = await t._cuenta_cartera(empresa_id, factura, es_cli, s)
+        cuenta_cartera = await t._cuenta_cartera(empresa_id, factura, es_cli, s)
         tercero = ant["tercero_id"]
         detalle = f"Aplicación {ant['numero']}"
         if es_cli:
             lineas = [Linea(codigo=params["anticipos_clientes"], debito=valor, tercero_id=tercero, descripcion=detalle),
-                      Linea(codigo=cartera, credito=valor, tercero_id=tercero, descripcion=detalle)]
+                      Linea(codigo=cuenta_cartera, credito=valor, tercero_id=tercero, descripcion=detalle)]
         else:
-            lineas = [Linea(codigo=cartera, debito=valor, tercero_id=tercero, descripcion=detalle),
+            lineas = [Linea(codigo=cuenta_cartera, debito=valor, tercero_id=tercero, descripcion=detalle),
                       Linea(codigo=params["anticipos_proveedores"], credito=valor, tercero_id=tercero, descripcion=detalle)]
         await registrar_asientos(empresa_id, APLICACION, str(res.inserted_id), numero, payload.fecha, lineas, s)
         await auditar(empresa_id, APLICACION, str(res.inserted_id), numero, usuario["id"], "creado", s)
@@ -247,8 +245,7 @@ async def anular_aplicacion(
 
     async def _tx(s):
         ap = await cargar_editable("aplicaciones_anticipo", empresa_id, apid, s)
-        coleccion = "facturas" if ap["tipo"] == "cliente" else "facturas_proveedor"
-        factura = await db[coleccion].find_one({"_id": oid(ap["documento_id"]), "empresa_id": empresa_id}, session=s)
+        coleccion, factura = await cartera.buscar(db, ap["tipo"], ap["documento_id"], empresa_id, s)
         if factura:
             await db[coleccion].update_one(
                 {"_id": factura["_id"]},

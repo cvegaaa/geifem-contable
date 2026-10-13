@@ -27,16 +27,33 @@ export default function Page() {
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
+  const [anioVista, setAnioVista] = useState(hoy.getFullYear());
+  const [periodos, setPeriodos] = useState(null);
 
   const cargar = async () => {
     try {
-      const { data } = await api.get("/api/contabilidad/cierre");
-      setEstado(data);
+      const [cierre, per] = await Promise.all([
+        api.get("/api/contabilidad/cierre"),
+        api.get("/api/contabilidad/cierre/periodos", { params: { anio: anioVista } }),
+      ]);
+      setEstado(cierre.data);
+      setPeriodos(per.data);
     } catch (err) {
       setError(mensajeError(err));
     }
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [anioVista]);
+
+  const cerrarHasta = async (fecha) => {
+    setError(null); setMensaje(null);
+    try {
+      await api.put("/api/contabilidad/cierre", { fecha_cierre: fecha });
+      setMensaje(`Contabilidad cerrada hasta el ${formatear(fecha)}`);
+      cargar();
+    } catch (err) {
+      setError(mensajeError(err));
+    }
+  };
 
   const cerrar = async () => {
     setError(null); setMensaje(null);
@@ -45,6 +62,7 @@ export default function Page() {
       const { data } = await api.put("/api/contabilidad/cierre", { fecha_cierre: fecha });
       setEstado(data);
       setMensaje(`Contabilidad cerrada hasta el ${formatear(fecha)}`);
+      cargar();
     } catch (err) {
       setError(mensajeError(err));
     }
@@ -55,6 +73,7 @@ export default function Page() {
     try {
       const { data } = await api.put("/api/contabilidad/cierre", { fecha_cierre: fecha, motivo });
       setEstado(data);
+      cargar();
       setReabrir(false);
       setMotivo("");
       setMensaje(fecha ? `Periodo reabierto: ahora el cierre es hasta el ${formatear(fecha)}` : "Periodos reabiertos: no hay fecha de cierre");
@@ -88,6 +107,42 @@ export default function Page() {
           </div>
         )}
       </div>
+
+      {periodos && (
+        <div className="bg-white border border-slate-200 rounded-lg p-4 mb-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="font-semibold text-geifem-navy">Estado de los periodos</h2>
+            <div className="flex flex-wrap gap-2">
+              {periodos.anios.map((a) => (
+                <button key={a.anio} onClick={() => setAnioVista(a.anio)}
+                  className={`text-xs border rounded-sm px-2 py-1 ${anioVista === a.anio ? "border-geifem-navy bg-geifem-navy text-white" : "border-slate-300"}`}>
+                  {a.anio} · {a.estado === "cerrado" ? "cerrado" : a.estado === "parcial" ? "parcial" : "abierto"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {periodos.meses.map((m) => {
+              const color = m.estado === "cerrado" ? "border-slate-300 bg-slate-100" : m.estado === "abierto" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white opacity-60";
+              return (
+                <div key={m.mes} className={`border rounded-lg p-2 text-sm ${color}`}>
+                  <div className="flex items-center justify-between">
+                    <b className="capitalize">{m.nombre}</b>
+                    <span className={`text-[11px] ${m.estado === "cerrado" ? "text-slate-600" : m.estado === "abierto" ? "text-emerald-700" : "text-slate-400"}`}>
+                      {m.estado === "cerrado" ? "🔒 Cerrado" : m.estado === "abierto" ? "Abierto" : "Futuro"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">{m.documentos} documento(s){m.pendientes ? <span className="text-amber-700"> · {m.pendientes} pendiente(s)</span> : null}</div>
+                  {m.estado === "abierto" && puede("contabilidad", "editar") && (
+                    <button onClick={() => cerrarHasta(m.fin)} className="mt-1 text-xs text-geifem-blue hover:underline">Cerrar hasta aquí</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Un año está «parcial» cuando solo algunos de sus meses están cerrados. Los comprobantes en borrador o por aprobar impiden cerrar su mes.</p>
+        </div>
+      )}
 
       {puede("contabilidad", "editar") && (
         <div className="bg-white border border-slate-200 rounded-lg p-4 mb-5">

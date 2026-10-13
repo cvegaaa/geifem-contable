@@ -19,7 +19,7 @@ from datetime import date
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from core import simple
+from core import cartera, simple
 from core.auth.dependencies import get_empresa_activa, require_permiso
 from core.documentos import NO_ANULADO
 from db import get_db
@@ -327,9 +327,12 @@ async def r_ventas_diarias(empresa_id, desde, hasta):
 
 async def r_cuentas_por_cobrar(empresa_id, desde, hasta):
     filas = []
-    for d in await _facturas(empresa_id, desde, hasta):
+    docs = await _facturas(empresa_id, desde, hasta)
+    docs += [d async for d in get_db().cartera_inicial.find(
+        {"empresa_id": empresa_id, "tipo": "cxc", "fecha": {"$gte": desde, "$lte": hasta}})]
+    for d in docs:
         filas.append({
-            "documento": f"{d.get('prefijo','')}{d.get('consecutivo','')}",
+            "documento": d.get("numero_documento") or f"{d.get('prefijo','')}{d.get('consecutivo','')}",
             "cliente": d.get("cliente_nombre", ""),
             "fecha": d.get("fecha"),
             "vencimiento": d.get("fecha_vencimiento", "—"),
@@ -825,7 +828,7 @@ async def _facturas_proveedor(empresa_id, desde, hasta):
 async def r_cuentas_por_pagar(empresa_id, desde, hasta):
     db = get_db()
     filas = []
-    async for f in db.facturas_proveedor.find({"empresa_id": empresa_id, **NO_ANULADO}).sort("fecha", 1):
+    async for f in cartera.iterar(db, empresa_id, "cxp"):
         saldo = float(f.get("saldo_pendiente", f.get("total_a_pagar", 0)))
         if saldo <= 0.009:
             continue
@@ -1091,7 +1094,7 @@ async def r_formato_1008(empresa_id, desde, hasta):
     terceros = await _terceros_detalle(empresa_id)
     acc = defaultdict(float)
     nombres = {}
-    async for f in db.facturas.find({"empresa_id": empresa_id, **NO_ANULADO, "fecha": {"$lte": hasta}}):
+    async for f in cartera.iterar(db, empresa_id, "cxc", {"fecha": {"$lte": hasta}}):
         saldo = float(f.get("saldo_pendiente", f.get("total", 0)))
         if saldo <= 0.009:
             continue
@@ -1112,7 +1115,7 @@ async def r_formato_1009(empresa_id, desde, hasta):
     terceros = await _terceros_detalle(empresa_id)
     acc = defaultdict(float)
     nombres = {}
-    async for f in db.facturas_proveedor.find({"empresa_id": empresa_id, **NO_ANULADO, "fecha": {"$lte": hasta}}):
+    async for f in cartera.iterar(db, empresa_id, "cxp", {"fecha": {"$lte": hasta}}):
         saldo = float(f.get("saldo_pendiente", f.get("total_a_pagar", 0)))
         if saldo <= 0.009:
             continue
