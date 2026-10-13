@@ -2,7 +2,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import api from "../../core/api.js";
 import { useEmpresa } from "../../core/EmpresaContext.jsx";
 import Modal from "../layout/Modal/index.jsx";
-import { fmtCOP, numeroDoc } from "./index.jsx";
+import { fmtCOP, mensajeError, numeroDoc } from "./index.jsx";
+import { valorEnLetras } from "../../core/letras.js";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 const VistaContext = createContext({ abrir: () => {} });
 
@@ -119,6 +121,13 @@ function Documento({ vista }) {
   const n = normalizar(vista.tipo, vista.doc, cuentas);
   // Quién elaboró y quién aprobó el documento (nombre del usuario).
   const [nombres, setNombres] = useState({});
+  // Valor total del documento para escribirlo en letras.
+  const dd = vista.doc;
+  const sumaDeb = (dd.lineas || []).reduce((acc, l) => acc + Number(l.debito || 0), 0);
+  const monto = Number(
+    (dd.total_retenciones && dd.total_a_cobrar != null ? dd.total_a_cobrar : null) ??
+      dd.total ?? dd.total_a_pagar ?? dd.valor ?? dd.valor_total ?? dd.total_debito ?? (sumaDeb || 0)
+  );
   const idDoc = vista.doc.documento_id || vista.doc.id;
   useEffect(() => {
     if (!idDoc || vista.doc.elaboro) return;
@@ -185,6 +194,7 @@ function Documento({ vista }) {
           </div>
         ))}
       </div>
+      {monto > 0 && <p className="mt-3 text-xs font-semibold text-slate-700">{valorEnLetras(monto)}</p>}
       {n.observaciones && <p className="mt-3 text-xs text-slate-600"><b>Observaciones:</b> {n.observaciones}</p>}
       {n.firmas && (
         <div className="grid grid-cols-3 gap-8 mt-14 text-xs text-slate-500">
@@ -196,6 +206,84 @@ function Documento({ vista }) {
       {vista.doc.estado_dian && vista.doc.estado_dian !== "borrador" && vista.doc.cufe && (
         <p className="mt-3 text-[10px] break-all text-slate-400">CUFE: {vista.doc.cufe}</p>
       )}
+    </div>
+  );
+}
+
+const RUTA_ENTREGA = { factura: "facturas", pos: "documento-equivalente-pos", nota: "notas-credito-debito" };
+
+async function descargar(url, nombre) {
+  const { data } = await api.get(url, { responseType: "blob" });
+  const enlace = document.createElement("a");
+  enlace.href = URL.createObjectURL(data);
+  enlace.download = nombre;
+  enlace.click();
+  URL.revokeObjectURL(enlace.href);
+}
+
+/** Descargar PDF y ZIP, enviar al cliente y enviar a la DIAN (según el tipo de documento). */
+function AccionesEntrega({ vista }) {
+  const { puede } = useAuth();
+  const [aviso, setAviso] = useState(null);       // { tono: "ok" | "error", texto }
+  const [correo, setCorreo] = useState("");
+  const [abierto, setAbierto] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const ruta = RUTA_ENTREGA[vista.tipo];
+  if (!ruta || vista.doc.estado === "anulado") return null;
+  const base = `/api/facturacion/${ruta}/${vista.doc.id}`;
+  const nombre = `${{ factura: "Factura", pos: "POS", nota: "Nota" }[vista.tipo]}-${vista.doc.numero}`;
+
+  const ejecutar = async (fn) => {
+    setAviso(null);
+    setOcupado(true);
+    try {
+      await fn();
+    } catch (err) {
+      // Los archivos llegan como blob: se lee el mensaje del servidor.
+      let texto = mensajeError(err);
+      if (err.response?.data instanceof Blob) {
+        try { texto = JSON.parse(await err.response.data.text()).detail || texto; } catch { /* sin detalle */ }
+      }
+      setAviso({ tono: "error", texto });
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const enviarCliente = () => ejecutar(async () => {
+    const { data } = await api.post(`${base}/enviar-cliente`, { destinatario: correo.trim() || null });
+    setAviso({ tono: "ok", texto: `Enviado a ${data.destinatario}` });
+    setAbierto(false);
+  });
+  const enviarDian = () => ejecutar(async () => {
+    await api.post(`${base}/enviar-dian`);
+    setAviso({ tono: "ok", texto: "Enviado a la DIAN" });
+  });
+  const boton = "px-2.5 py-1 rounded-sm border border-slate-300 text-xs hover:bg-slate-50 disabled:opacity-50";
+
+  return (
+    <div className="no-imprimir border-t border-slate-200 mt-4 pt-3">
+      <div className="flex flex-wrap gap-2">
+        <button disabled={ocupado} onClick={() => ejecutar(() => descargar(`${base}/pdf`, `${nombre}.pdf`))} className={boton}>Descargar PDF</button>
+        {vista.tipo === "factura" && (
+          <button disabled={ocupado} onClick={() => ejecutar(() => descargar(`${base}/zip`, `${nombre}.zip`))} className={boton}
+            title="PDF + XML autorizado por la DIAN">Descargar ZIP</button>
+        )}
+        {puede("facturacion", "editar") && (
+          <button disabled={ocupado} onClick={() => setAbierto((v) => !v)} className={boton}>Enviar al cliente</button>
+        )}
+        {vista.tipo === "factura" && puede("facturacion", "editar") && (
+          <button disabled={ocupado} onClick={enviarDian} className={boton}>Enviar a la DIAN</button>
+        )}
+      </div>
+      {abierto && (
+        <div className="flex flex-wrap gap-2 items-center mt-2">
+          <input value={correo} onChange={(e) => setCorreo(e.target.value)} type="email" placeholder="Correo (vacío = el del cliente)"
+            className="border border-slate-300 rounded-sm px-2 py-1 text-sm w-64" />
+          <button disabled={ocupado} onClick={enviarCliente} className="px-3 py-1 rounded-sm bg-geifem-navy text-white text-sm disabled:opacity-50">Enviar</button>
+        </div>
+      )}
+      {aviso && <p className={`text-xs mt-2 ${aviso.tono === "ok" ? "text-emerald-700" : "text-red-600"}`}>{aviso.texto}</p>}
     </div>
   );
 }
@@ -219,6 +307,7 @@ export function VistaDocumentoProvider({ children }) {
         }
       >
         {vista && <Documento vista={vista} />}
+        {vista && <AccionesEntrega key={vista.doc.id} vista={vista} />}
       </Modal>
     </VistaContext.Provider>
   );

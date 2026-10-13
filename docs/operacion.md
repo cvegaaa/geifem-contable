@@ -91,6 +91,13 @@ RESPALDO_AHORA=1 /usr/local/bin/respaldar.sh
 
 **Haz una restauración de prueba al menos una vez al trimestre**: un respaldo que nunca se probó no es un respaldo.
 
+### Correo saliente (envío de facturas)
+
+Para «Enviar al cliente» el backend necesita un servidor SMTP (Gmail/Google Workspace con contraseña de aplicación, Microsoft 365, SendGrid, etc.).
+Define en las variables del servicio `backend`: `SMTP_HOST`, `SMTP_PUERTO` (587 con STARTTLS o 465 con `SMTP_SSL=true`), `SMTP_USUARIO`,
+`SMTP_PASSWORD` y `SMTP_REMITENTE`. Sin `SMTP_HOST` la aplicación responde que el correo no está configurado. El PDF se genera en el servidor;
+el ZIP (PDF + XML) solo existe cuando la DIAN aceptó la factura.
+
 ## 5. Actualizar la aplicación
 
 1. Despliega primero en una copia (o fuera de horario) y revisa que las pruebas del CI estén en verde.

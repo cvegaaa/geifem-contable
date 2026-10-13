@@ -186,6 +186,13 @@ Pendiente de la revisión de Contabilidad: incluir en la consulta los documentos
 - [x] Impuesto al consumo: un solo impuesto con varias tarifas y una cuenta única; el ICA queda aparte.
 - [x] Resoluciones DIAN listas para sincronizar con el portal (tipo de documento, fecha, clave técnica, origen y botón «Sincronizar con la DIAN», que responde que falta el proveedor tecnológico hasta la capa de Alegra).
 
+**Facturación** (observaciones del propietario, 2026-10-13):
+
+- [x] **Crear sin salir de la factura**: «+ Nuevo cliente», «+ Nueva resolución» y «+ Nuevo producto o servicio» en la factura de venta y el POS; el registro nuevo queda seleccionado.
+- [x] **Total en letras** en la impresión de todos los documentos (factura, POS, notas, compras, recibos, anticipos, comprobantes…) y en el PDF.
+- [x] **Descargar PDF** (generado en el servidor) de facturas, POS y notas; **Descargar ZIP** (PDF + XML) de facturas aceptadas por la DIAN; **Enviar al cliente** por correo (SMTP configurable, con PDF y ZIP adjuntos y registro del envío); **Enviar a la DIAN** desde el visor del documento.
+- [ ] Pendiente de la capa de Alegra: que «Enviar a la DIAN» transmita de verdad, guarde CUFE y XML y habilite el ZIP; QR de la factura; plantillas de PDF con logo de la empresa.
+
 ### Valor agregado
 
 - [ ] Exógena, Formulario 350, libros oficiales.
@@ -219,3 +226,4 @@ Detectados en las revisiones; se resuelven en la fase indicada.
 - **2026-10-13 (Fase 2, segundo bloque)** — Anticipos, cobros y pagos múltiples, transferencias, formularios SIMPLE 2593 y 260 con tarifas editables, seguimiento de órdenes de compra, devoluciones a proveedor, ajuste retroactivo del costo de venta y facturas electrónicas recibidas con eventos RADIAN. 83 pruebas en verde. Las tarifas SIMPLE son de referencia y requieren verificación del contador.
 - **2026-10-13 (revisión de Contabilidad)** — Tercero por línea, firmas de elaboró y aprobó, flujo de aprobación para el auxiliar, estado de periodos, consulta unificada de todos los módulos, cartera inicial por documento, cierre sugerido y auditoría con usuario y acción.
 - **2026-10-13 (revisión de Configuración y aprobación general)** — Aprobación para todos los módulos con solicitudes que se ejecutan al autorizar, roles y permisos editables, CIIU en lista, plan de cuentas a 6 dígitos, cuentas por producto y por empleado, INC único y resoluciones DIAN listas para sincronizar. 97 pruebas en verde.
+- **2026-10-13 (revisión de Facturación)** — Creación rápida de cliente, producto y resolución dentro de la factura y el POS, total en letras, PDF y ZIP, y envío al cliente por correo. 99 pruebas en verde.

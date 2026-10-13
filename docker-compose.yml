@@ -41,6 +41,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       REGISTRO_ABIERTO: ${REGISTRO_ABIERTO:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PUERTO: ${SMTP_PUERTO:-587}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_REMITENTE: ${SMTP_REMITENTE:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
     depends_on:
       mongo:
         condition: service_healthy

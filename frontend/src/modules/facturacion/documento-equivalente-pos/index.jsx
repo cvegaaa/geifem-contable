@@ -15,6 +15,7 @@ import {
   tituloModo,
   useAnulacion,
 } from "../../../shared/documentos/index.jsx";
+import { BotonNuevo, NuevaResolucionModal, NuevoProductoModal, NuevoTerceroModal } from "../../../shared/documentos/CreacionRapida.jsx";
 import LineasVenta, { lineaVentaVacia, totalesVenta } from "../_LineasVenta.jsx";
 
 export default function Page() {
@@ -34,6 +35,7 @@ export default function Page() {
 
   const [fecha, setFecha] = useState(hoy());
   const [clienteId, setClienteId] = useState("");
+  const [nuevoCliente, setNuevoCliente] = useState(false);
   const [formaPagoId, setFormaPagoId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [lineas, setLineas] = useState([lineaVentaVacia()]);
@@ -175,6 +177,7 @@ export default function Page() {
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </Select>
+              <BotonNuevo modulo="configuracion" etiqueta="+ Nuevo cliente" onClick={() => setNuevoCliente(true)} />
             </FormField>
             <FormField label="Fecha">
               <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
@@ -196,7 +199,10 @@ export default function Page() {
               </Select>
             </FormField>
           </div>
-          <LineasVenta lineas={lineas} setLineas={setLineas} productos={productos} totales={totales} permitirLibre cobraIva={perfil?.cobra_iva !== false} />
+          <LineasVenta lineas={lineas} setLineas={setLineas} productos={productos} totales={totales} permitirLibre cobraIva={perfil?.cobra_iva !== false}
+            onProductoCreado={(p) => setProductos((ps) => [...ps, p])} />
+          <NuevoTerceroModal open={nuevoCliente} onClose={() => setNuevoCliente(false)}
+            onCreado={(t) => { setClientes((cs) => [...cs, t]); setClienteId(t.id); }} />
           <FormField label="Observaciones">
             <Input value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
           </FormField>

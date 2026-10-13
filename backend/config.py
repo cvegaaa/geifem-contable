@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     login_ventana_min: int = 15
     registro_max_por_hora: int = 5
 
+    # Correo saliente (envío de facturas a clientes). Sin SMTP_HOST el envío responde que no está configurado.
+    smtp_host: str = ""
+    smtp_puerto: int = 587
+    smtp_usuario: str = ""
+    smtp_password: str = ""
+    smtp_remitente: str = ""
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
     @model_validator(mode="after")

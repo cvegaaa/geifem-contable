@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Input, Select } from "../../shared/layout/FormField/index.jsx";
+import { BotonNuevo, NuevoProductoModal } from "../../shared/documentos/CreacionRapida.jsx";
 import { fmtCOP } from "../../shared/documentos/index.jsx";
 
 export const lineaVentaVacia = () => ({ producto_id: "", descripcion: "", cantidad: 1, precio_unitario: 0, tarifa_iva: 19 });
@@ -18,14 +20,15 @@ export function totalesVenta(lineas) {
  * Tabla de ítems de venta (factura y POS). Con `permitirLibre` se puede vender
  * un concepto sin producto del catálogo (no mueve inventario).
  */
-export default function LineasVenta({ lineas, setLineas, productos, totales, permitirLibre = false, cobraIva = true }) {
-  const actualizar = (i, campo, valor) => {
+export default function LineasVenta({ lineas, setLineas, productos, totales, permitirLibre = false, cobraIva = true, onProductoCreado }) {
+  const [nuevoEn, setNuevoEn] = useState(null);   // índice de la línea que crea un producto
+  const actualizar = (i, campo, valor, productoNuevo = null) => {
     setLineas((ls) =>
       ls.map((l, idx) => {
         if (idx !== i) return l;
         const nueva = { ...l, [campo]: valor };
         if (campo === "producto_id" && valor) {
-          const prod = productos.find((p) => p.id === valor);
+          const prod = productoNuevo || productos.find((p) => p.id === valor);
           if (prod) {
             nueva.precio_unitario = prod.precio_venta || prod.precio_referencia || 0;
             // Excluido/exento (o empresa no responsable de IVA): sin IVA.
@@ -39,6 +42,9 @@ export default function LineasVenta({ lineas, setLineas, productos, totales, per
   };
 
   return (
+    <>
+    <NuevoProductoModal open={nuevoEn !== null} onClose={() => setNuevoEn(null)}
+      onCreado={(p) => { onProductoCreado?.(p); actualizar(nuevoEn, "producto_id", p.id, p); }} />
     <div className="border border-slate-200 rounded-lg overflow-x-auto mb-3">
       <table className="w-full text-sm">
         <thead className="bg-slate-100 text-slate-700">
@@ -65,6 +71,7 @@ export default function LineasVenta({ lineas, setLineas, productos, totales, per
                       </option>
                     ))}
                   </Select>
+                  {onProductoCreado && <BotonNuevo modulo="inventario" etiqueta="+ Nuevo producto o servicio" onClick={() => setNuevoEn(i)} />}
                   {permitirLibre && !l.producto_id && (
                     <Input
                       className="mt-1"
@@ -124,5 +131,6 @@ export default function LineasVenta({ lineas, setLineas, productos, totales, per
         </tfoot>
       </table>
     </div>
+    </>
   );
 }

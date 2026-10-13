@@ -15,6 +15,7 @@ import {
   tituloModo,
   useAnulacion,
 } from "../../../shared/documentos/index.jsx";
+import { BotonNuevo, NuevaResolucionModal, NuevoProductoModal, NuevoTerceroModal } from "../../../shared/documentos/CreacionRapida.jsx";
 import LineasVenta, { lineaVentaVacia, totalesVenta } from "../_LineasVenta.jsx";
 
 export default function Page() {
@@ -32,6 +33,7 @@ export default function Page() {
   const [guardando, setGuardando] = useState(false);
 
   const [clienteId, setClienteId] = useState("");
+  const [nuevo, setNuevo] = useState(null);   // "cliente" | "resolucion"
   const [resolucionId, setResolucionId] = useState("");
   const [formaPagoId, setFormaPagoId] = useState("");
   const [fecha, setFecha] = useState(hoy());
@@ -214,6 +216,7 @@ export default function Page() {
                   </option>
                 ))}
               </Select>
+              <BotonNuevo modulo="configuracion" etiqueta="+ Nuevo cliente" onClick={() => setNuevo("cliente")} />
             </FormField>
             <FormField label="Resolución DIAN">
               <Select value={resolucionId} disabled={modo === "editar"} onChange={(e) => setResolucionId(e.target.value)}>
@@ -224,6 +227,7 @@ export default function Page() {
                   </option>
                 ))}
               </Select>
+              <BotonNuevo modulo="configuracion" etiqueta="+ Nueva resolución" onClick={() => setNuevo("resolucion")} />
             </FormField>
             <FormField label="Fecha">
               <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
@@ -241,7 +245,12 @@ export default function Page() {
             </FormField>
           </div>
 
-          <LineasVenta lineas={lineas} setLineas={setLineas} productos={productos} totales={totales} cobraIva={perfil?.cobra_iva !== false} />
+          <LineasVenta lineas={lineas} setLineas={setLineas} productos={productos} totales={totales} cobraIva={perfil?.cobra_iva !== false}
+            onProductoCreado={(p) => setProductos((ps) => [...ps, p])} />
+          <NuevoTerceroModal open={nuevo === "cliente"} onClose={() => setNuevo(null)}
+            onCreado={(t) => { setClientes((cs) => [...cs, t]); setClienteId(t.id); }} />
+          <NuevaResolucionModal open={nuevo === "resolucion"} onClose={() => setNuevo(null)}
+            onCreado={(r) => { setResoluciones((rs) => [...rs, r]); setResolucionId(r.id); }} />
 
           <FormField label="Observaciones">
             <Input value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />

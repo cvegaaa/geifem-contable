@@ -7,9 +7,12 @@ venta (6135 / 1435) al costo promedio vigente.
 La emisión electrónica ante la DIAN se hará vía Alegra (Fase 2). Mientras
 `estado_dian` sea `borrador`, el documento se puede editar o anular.
 """
+import io
+import zipfile
 from collections import defaultdict
 from typing import Literal
 
+from fastapi.responses import Response
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -31,7 +34,8 @@ from core.documentos import (
     serializar,
     siguiente_consecutivo,
 )
-from core import impuestos, inventario, parametros
+from core import correo, impuestos, inventario, parametros
+from core.pdf_documentos import pdf_documento
 from db import get_db
 from core.dinero import redondear
 
@@ -412,6 +416,117 @@ async def enviar_dian(
         raise HTTPException(501, str(exc))
     await db.facturas.update_one({"_id": factura["_id"]}, {"$set": resultado})
     return {"ok": True, **resultado}
+
+
+# ---------------------------------------------------------------------------
+# Entrega del documento: PDF, ZIP y envío al cliente
+# ---------------------------------------------------------------------------
+
+COLECCION_ENTREGA = {"factura": "facturas", "pos": "documentos_pos", "nota": "notas_credito_debito"}
+
+
+async def _documento_entrega(tipo: str, did: str, empresa_id: str) -> tuple[dict, dict, dict | None]:
+    db = get_db()
+    doc = await db[COLECCION_ENTREGA[tipo]].find_one({"_id": oid(did), "empresa_id": empresa_id})
+    if not doc:
+        raise HTTPException(404, "Documento no encontrado")
+    empresa = await db.empresas.find_one({"_id": oid(empresa_id)}) or {}
+    tercero = await db.terceros.find_one({"_id": oid(doc["cliente_id"]), "empresa_id": empresa_id}) if doc.get("cliente_id") else None
+    return doc, empresa, tercero
+
+
+def _nombre_archivo(tipo: str, doc: dict) -> str:
+    base = {"factura": "Factura", "pos": "POS", "nota": "Nota"}[tipo]
+    return f"{base}-{doc.get('numero', 'documento')}".replace("/", "-")
+
+
+def _zip_documento(tipo: str, doc: dict, pdf: bytes) -> bytes:
+    """ZIP de entrega: el PDF y, si la DIAN ya aceptó el documento, su XML."""
+    if tipo != "factura" or not doc.get("xml"):
+        raise HTTPException(409, "El ZIP (PDF + XML) está disponible cuando la factura es aceptada por la DIAN: aún no tiene XML autorizado")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{_nombre_archivo(tipo, doc)}.pdf", pdf)
+        z.writestr(f"{_nombre_archivo(tipo, doc)}.xml", doc["xml"])
+    return buf.getvalue()
+
+
+def _respuesta_archivo(contenido: bytes, nombre: str, mime: str) -> Response:
+    return Response(contenido, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@router.get("/facturas/{did}/pdf")
+async def pdf_factura(did: str, empresa_id: str = Depends(get_empresa_activa), _=Depends(require_permiso("facturacion", "leer"))):
+    doc, empresa, tercero = await _documento_entrega("factura", did, empresa_id)
+    return _respuesta_archivo(pdf_documento("factura", doc, empresa, tercero), f"{_nombre_archivo('factura', doc)}.pdf", "application/pdf")
+
+
+@router.get("/facturas/{did}/zip")
+async def zip_factura(did: str, empresa_id: str = Depends(get_empresa_activa), _=Depends(require_permiso("facturacion", "leer"))):
+    doc, empresa, tercero = await _documento_entrega("factura", did, empresa_id)
+    pdf = pdf_documento("factura", doc, empresa, tercero)
+    return _respuesta_archivo(_zip_documento("factura", doc, pdf), f"{_nombre_archivo('factura', doc)}.zip", "application/zip")
+
+
+@router.get("/documento-equivalente-pos/{did}/pdf")
+async def pdf_pos(did: str, empresa_id: str = Depends(get_empresa_activa), _=Depends(require_permiso("facturacion", "leer"))):
+    doc, empresa, tercero = await _documento_entrega("pos", did, empresa_id)
+    return _respuesta_archivo(pdf_documento("pos", doc, empresa, tercero), f"{_nombre_archivo('pos', doc)}.pdf", "application/pdf")
+
+
+@router.get("/notas-credito-debito/{did}/pdf")
+async def pdf_nota(did: str, empresa_id: str = Depends(get_empresa_activa), _=Depends(require_permiso("facturacion", "leer"))):
+    doc, empresa, tercero = await _documento_entrega("nota", did, empresa_id)
+    return _respuesta_archivo(pdf_documento("nota", doc, empresa, tercero), f"{_nombre_archivo('nota', doc)}.pdf", "application/pdf")
+
+
+class EnvioCliente(BaseModel):
+    destinatario: str | None = Field(default=None, description="Correo; por defecto el del cliente")
+    mensaje: str | None = None
+
+
+async def _enviar_al_cliente(tipo: str, did: str, payload: EnvioCliente, empresa_id: str, usuario: dict) -> dict:
+    doc, empresa, tercero = await _documento_entrega(tipo, did, empresa_id)
+    if doc.get("estado") == "anulado":
+        raise HTTPException(409, "El documento está anulado")
+    destino = (payload.destinatario or (tercero or {}).get("email") or "").strip()
+    if not destino or "@" not in destino:
+        raise HTTPException(422, "El cliente no tiene correo: indica el destinatario")
+    pdf = pdf_documento(tipo, doc, empresa, tercero)
+    nombre = _nombre_archivo(tipo, doc)
+    adjuntos = [(f"{nombre}.pdf", pdf, "application/pdf")]
+    if tipo == "factura" and doc.get("xml"):
+        adjuntos.append((f"{nombre}.zip", _zip_documento(tipo, doc, pdf), "application/zip"))
+    titulo = {"factura": "Factura", "pos": "Documento POS", "nota": "Nota crédito/débito"}[tipo]
+    cuerpo = (payload.mensaje or f"Hola,\n\nAdjuntamos su {titulo.lower()} {doc.get('numero', '')} por ${float(doc.get('total', 0)):,.2f}.\n\nGracias por su compra.") + \
+        f"\n\n{empresa.get('razon_social', '')}"
+    try:
+        await correo.enviar([destino], f"{titulo} {doc.get('numero', '')} de {empresa.get('razon_social', '')}", cuerpo, adjuntos)
+    except correo.CorreoNoConfigurado as exc:
+        raise HTTPException(501, str(exc))
+    except Exception as exc:  # fallas del servidor de correo: se informan sin exponer detalles internos
+        raise HTTPException(502, f"No se pudo enviar el correo: {exc.__class__.__name__}")
+    await get_db()[COLECCION_ENTREGA[tipo]].update_one(
+        {"_id": doc["_id"]}, {"$push": {"envios_cliente": {"destinatario": destino, "fecha": ahora(), "usuario_id": usuario["id"]}}})
+    return {"enviado": True, "destinatario": destino}
+
+
+@router.post("/facturas/{did}/enviar-cliente")
+async def enviar_factura_cliente(did: str, payload: EnvioCliente, empresa_id: str = Depends(get_empresa_activa),
+                                 usuario: dict = Depends(require_permiso("facturacion", "editar"))):
+    return await _enviar_al_cliente("factura", did, payload, empresa_id, usuario)
+
+
+@router.post("/documento-equivalente-pos/{did}/enviar-cliente")
+async def enviar_pos_cliente(did: str, payload: EnvioCliente, empresa_id: str = Depends(get_empresa_activa),
+                             usuario: dict = Depends(require_permiso("facturacion", "editar"))):
+    return await _enviar_al_cliente("pos", did, payload, empresa_id, usuario)
+
+
+@router.post("/notas-credito-debito/{did}/enviar-cliente")
+async def enviar_nota_cliente(did: str, payload: EnvioCliente, empresa_id: str = Depends(get_empresa_activa),
+                              usuario: dict = Depends(require_permiso("facturacion", "editar"))):
+    return await _enviar_al_cliente("nota", did, payload, empresa_id, usuario)
 
 
 # ---------------------------------------------------------------------------
