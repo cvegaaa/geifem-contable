@@ -549,20 +549,65 @@ async def r_estado_situacion_financiera(empresa_id, desde, hasta):
 
 
 async def r_form_300_iva(empresa_id, desde, hasta):
+    """Liquidación del IVA del periodo: ventas por tarifa (netas de notas), IVA descontable y saldo."""
+    db = get_db()
     docs = await _facturas(empresa_id, desde, hasta) + await _pos(empresa_id, desde, hasta)
-    acc = defaultdict(lambda: {"base": 0.0, "iva": 0.0})
+    notas = [n async for n in db.notas_credito_debito.find(
+        {"empresa_id": empresa_id, **NO_ANULADO, "fecha": {"$gte": desde, "$lte": hasta}})]
+    ventas = defaultdict(lambda: {"base": 0.0, "iva": 0.0})   # tarifa -> valores netos
     for d in docs:
         for it in d.get("items", []):
-            acc[it.get("tarifa_iva", 0)]["base"] += it.get("subtotal", 0)
-            acc[it.get("tarifa_iva", 0)]["iva"] += it.get("iva", 0)
-    filas = [{"tarifa": f"{t}%", "base": redondear(v["base"], 2), "iva": redondear(v["iva"], 2)}
-             for t, v in sorted(acc.items())]
+            t = float(it.get("tarifa_iva", 0) or 0)
+            ventas[t]["base"] += it.get("subtotal", 0)
+            ventas[t]["iva"] += it.get("iva", 0)
+    for n in notas:
+        signo = -1 if n.get("tipo") == "credito" else 1
+        for it in n.get("items", []):
+            t = float(it.get("tarifa_iva", 0) or 0)
+            ventas[t]["base"] += signo * it.get("subtotal", 0)
+            ventas[t]["iva"] += signo * it.get("iva", 0)
+
+    filas, gravadas, iva_generado, base_cero = [], 0.0, 0.0, 0.0
+    for t in sorted(ventas):
+        v = ventas[t]
+        if t > 0:
+            filas.append({"seccion": "Ingresos", "concepto": f"Ventas gravadas a la tarifa del {t:g}% (netas de notas)",
+                          "base": redondear(v["base"], 2), "impuesto": redondear(v["iva"], 2)})
+            gravadas += v["base"]
+            iva_generado += v["iva"]
+        else:
+            base_cero += v["base"]
+    filas.append({"seccion": "Ingresos", "concepto": "Ventas a tarifa 0% (excluidas, exentas o no gravadas, netas de notas)",
+                  "base": redondear(base_cero, 2), "impuesto": 0})
+
+    compras_base = compras_iva = reteiva_practicada = 0.0
+    for f in await _facturas_proveedor(empresa_id, desde, hasta):
+        compras_base += f.get("subtotal", 0)
+        compras_iva += f.get("iva_total", 0)
+        reteiva_practicada += (f.get("retenciones") or {}).get("reteiva", 0)
+    filas.append({"seccion": "Compras", "concepto": "Compras con IVA descontable", "base": redondear(compras_base, 2),
+                  "impuesto": redondear(compras_iva, 2)})
+
+    reteiva_sufrida = sum((d.get("retenciones") or {}).get("reteiva", 0) for d in docs)
+    for n in notas:
+        signo = -1 if n.get("tipo") == "credito" else 1
+        reteiva_sufrida += signo * (n.get("retenciones") or {}).get("reteiva", 0)
+
+    saldo = iva_generado - compras_iva
+    filas.append({"seccion": "Liquidación", "concepto": "IVA generado", "base": None, "impuesto": redondear(iva_generado, 2)})
+    filas.append({"seccion": "Liquidación", "concepto": "(-) IVA descontable", "base": None, "impuesto": redondear(compras_iva, 2)})
+    filas.append({"seccion": "Liquidación", "concepto": "(-) ReteIVA que te practicaron", "base": None, "impuesto": redondear(reteiva_sufrida, 2)})
+    neto = saldo - reteiva_sufrida
+    filas.append({"seccion": "Liquidación", "concepto": "Saldo a pagar" if neto >= 0 else "Saldo a favor",
+                  "base": None, "impuesto": redondear(abs(neto), 2)})
     return _tabla(
-        [{"key": "tarifa", "label": "Tarifa"}, {"key": "base", "label": "Base gravable"},
-         {"key": "iva", "label": "IVA generado"}],
-        filas, {"base_gravable": redondear(sum(f["base"] for f in filas), 2),
-                "iva_generado": redondear(sum(f["iva"] for f in filas), 2),
-                "documentos": len(docs)},
+        [{"key": "seccion", "label": "Sección"}, {"key": "concepto", "label": "Concepto"},
+         {"key": "base", "label": "Base"}, {"key": "impuesto", "label": "Impuesto"}],
+        filas,
+        {"ventas_gravadas": redondear(gravadas, 2), "iva_generado": redondear(iva_generado, 2),
+         "iva_descontable": redondear(compras_iva, 2), "reteiva_sufrida": redondear(reteiva_sufrida, 2),
+         "reteiva_practicada_por_pagar": redondear(reteiva_practicada, 2),
+         "saldo_a_pagar": redondear(max(neto, 0), 2), "saldo_a_favor": redondear(max(-neto, 0), 2)},
     )
 
 

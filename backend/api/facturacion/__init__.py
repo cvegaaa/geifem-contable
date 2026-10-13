@@ -571,6 +571,9 @@ async def anular_pos(
 
 class ItemNota(BaseModel):
     descripcion: str = Field(min_length=1)
+    # Devolución de mercancía: reingresa al inventario al costo con que salió en la venta.
+    producto_id: str | None = None
+    reingresar: bool = False
     cantidad: float = Field(default=1, gt=0)
     precio_unitario: float = Field(ge=0)
     tarifa_iva: float = Field(default=0, ge=0, le=100)
@@ -587,17 +590,57 @@ class NotaCrear(BaseModel):
 NOTA = "nota"
 
 
-async def _armar_nota(empresa_id: str, payload: NotaCrear, s) -> tuple[dict, dict]:
+async def _validar_devoluciones(empresa_id: str, payload: NotaCrear, factura: dict, excluir_id: str | None, s) -> dict[str, float]:
+    """Costo unitario de venta de cada producto que se reingresa; valida las cantidades devueltas."""
+    db = get_db()
+    pedidas: dict[str, float] = defaultdict(float)
+    for i in payload.items:
+        if not i.reingresar:
+            continue
+        if payload.tipo != "credito":
+            raise HTTPException(422, "Solo una nota crédito puede reingresar mercancía")
+        if not i.producto_id:
+            raise HTTPException(422, f"Selecciona el producto a reingresar en «{i.descripcion}»")
+        pedidas[i.producto_id] += i.cantidad
+    if not pedidas:
+        return {}
+    vendidas: dict[str, float] = defaultdict(float)
+    for it in factura.get("items", []):
+        if it.get("inventariable") and it.get("producto_id"):
+            vendidas[it["producto_id"]] += float(it["cantidad"])
+    devueltas: dict[str, float] = defaultdict(float)
+    filtro = {"empresa_id": empresa_id, "factura_id": str(factura["_id"]), "tipo": "credito", **NO_ANULADO}
+    async for n in db.notas_credito_debito.find(filtro, session=s):
+        if excluir_id and str(n["_id"]) == excluir_id:
+            continue
+        for it in n.get("items", []):
+            if it.get("reingresar") and it.get("producto_id"):
+                devueltas[it["producto_id"]] += float(it["cantidad"])
+    costos: dict[str, float] = {}
+    for pid, cant in pedidas.items():
+        if pid not in vendidas:
+            raise HTTPException(409, "Solo se puede reingresar mercancía inventariable vendida en esa factura")
+        if devueltas[pid] + cant > vendidas[pid] + 1e-9:
+            raise HTTPException(409, f"Se devuelve más de lo vendido (vendidas {vendidas[pid]}, ya devueltas {devueltas[pid]})")
+        mov = await db.movimientos_inventario.find_one(
+            {"empresa_id": empresa_id, "documento_id": str(factura["_id"]), "producto_id": pid, "tipo": "salida"}, session=s)
+        costos[pid] = float(mov.get("costo_unitario") or 0) if mov else await inventario.costo_promedio(empresa_id, pid, s)
+    return costos
+
+
+async def _armar_nota(empresa_id: str, payload: NotaCrear, s, excluir_id: str | None = None) -> tuple[dict, dict]:
     db = get_db()
     factura = await db.facturas.find_one(
         {"_id": oid(payload.factura_id, "factura_id"), "empresa_id": empresa_id, **NO_ANULADO}, session=s
     )
     if not factura:
         raise HTTPException(404, "Factura origen no encontrada o anulada")
+    costos = await _validar_devoluciones(empresa_id, payload, factura, excluir_id, s)
     subtotal = sum(i.cantidad * i.precio_unitario for i in payload.items)
     iva = sum(i.cantidad * i.precio_unitario * i.tarifa_iva / 100 for i in payload.items)
     items = [
-        {**i.model_dump(), "subtotal": redondear(i.cantidad * i.precio_unitario, 2),
+        {**i.model_dump(), "costo_unitario": costos.get(i.producto_id) if i.reingresar else None,
+         "subtotal": redondear(i.cantidad * i.precio_unitario, 2),
          "iva": redondear(i.cantidad * i.precio_unitario * i.tarifa_iva / 100, 2),
          "total": redondear(i.cantidad * i.precio_unitario * (1 + i.tarifa_iva / 100), 2)}
         for i in payload.items
@@ -637,6 +680,30 @@ async def _armar_nota(empresa_id: str, payload: NotaCrear, s) -> tuple[dict, dic
     return doc, factura
 
 
+async def _reingreso_mercancia(empresa_id: str, nid: str, doc: dict, factura: dict, params: dict, s) -> list[Linea]:
+    """Entrada de inventario por devolución y su asiento (inventario / costo de venta)."""
+    db = get_db()
+    items = [i for i in doc["items"] if i.get("reingresar") and i.get("producto_id")]
+    if not items:
+        return []
+    bodega_id = factura.get("bodega_id") or await inventario.bodega_principal(empresa_id, s)
+    await inventario.registrar_movimientos(
+        empresa_id, NOTA, nid, doc["numero"], doc["fecha"],
+        [{"producto_id": i["producto_id"], "bodega_id": bodega_id, "tipo": "entrada",
+          "cantidad": i["cantidad"], "costo_unitario": i["costo_unitario"] or 0} for i in items], s)
+    por_cuenta: dict[tuple[str, str], float] = defaultdict(float)
+    for i in items:
+        prod = await db.productos.find_one({"_id": oid(i["producto_id"]), "empresa_id": empresa_id}, session=s)
+        clave = (parametros.cuenta_producto(prod, "cuenta_inventario", params), parametros.cuenta_producto(prod, "cuenta_costo", params))
+        por_cuenta[clave] += i["cantidad"] * (i["costo_unitario"] or 0)
+    lineas = []
+    for (cuenta_inv, cuenta_costo), valor in por_cuenta.items():
+        valor = redondear(valor, 2)
+        lineas.append(Linea(codigo=cuenta_inv, debito=valor, descripcion="Devolución: reingreso a inventario"))
+        lineas.append(Linea(codigo=cuenta_costo, credito=valor, descripcion="Devolución: reverso del costo de venta"))
+    return lineas
+
+
 async def _aplicar_nota(empresa_id: str, nid: str, doc: dict, factura: dict, s) -> None:
     signo = -1 if doc["tipo"] == "credito" else 1
     nuevo_saldo = redondear(float(factura.get("saldo_pendiente", factura["total"])) + signo * doc["neto"], 2)
@@ -660,6 +727,7 @@ async def _aplicar_nota(empresa_id: str, nid: str, doc: dict, factura: dict, s) 
         if autorret:
             lineas.append(Linea(codigo=params["autorretencion_pasivo"], debito=autorret, descripcion="Autorretención revertida"))
             lineas.append(Linea(codigo=params["autorretencion_anticipo"], credito=autorret, descripcion="Autorretención revertida"))
+        lineas += await _reingreso_mercancia(empresa_id, nid, doc, factura, params, s)
     else:
         lineas = [Linea(codigo=cxc, debito=doc["neto"], tercero_id=t),
                   Linea(codigo=params["ingresos"], credito=doc["subtotal"], tercero_id=t),
@@ -681,6 +749,7 @@ async def _revertir_nota(empresa_id: str, nota: dict, s) -> None:
         session=s,
     )
     await borrar_asientos(empresa_id, NOTA, str(nota["_id"]), s)
+    await inventario.borrar_movimientos(empresa_id, NOTA, str(nota["_id"]), s)
 
 
 @router.get("/notas-credito-debito")
@@ -733,7 +802,7 @@ async def editar_nota(
         if payload.tipo != existente["tipo"]:
             raise HTTPException(409, "No se puede cambiar el tipo de una nota ya numerada")
         await _revertir_nota(empresa_id, existente, s)
-        doc, factura = await _armar_nota(empresa_id, payload, s)
+        doc, factura = await _armar_nota(empresa_id, payload, s, excluir_id=nid)
         doc.update({**campos_conservados(existente), "editado_por": usuario["id"], "fecha_actualizacion": ahora()})
         await db.notas_credito_debito.replace_one({"_id": existente["_id"]}, doc, session=s)
         await _aplicar_nota(empresa_id, nid, doc, factura, s)

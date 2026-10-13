@@ -18,7 +18,7 @@ from core.auth.jwt_utils import hash_password
 from core.auth.models import EmpresaDatos, UsuarioCrear
 from core.auth.permissions import ACCIONES, MODULOS, PERMISOS_POR_ROL, permisos_base
 from core.auth.routes import usuario_publico
-from core import impuestos, parametros
+from core import impuestos, nit, parametros
 from core.empresas import crear_empresa
 from core.documentos import oid
 from db import get_db
@@ -36,6 +36,22 @@ RECURSOS = [
     ("/formas-pago", "formas_pago"),
 ]
 
+async def _validar_tercero(payload: dict, empresa_id: str) -> None:
+    """NIT: calcula el dígito de verificación y rechaza uno que no corresponda."""
+    if str(payload.get("tipo_documento", "")).upper() != "NIT":
+        return
+    esperado = nit.digito_verificacion(payload.get("numero_documento"))
+    if esperado is None:
+        raise HTTPException(422, "El NIT debe ser numérico (máximo 15 dígitos)")
+    dado = str(payload.get("dv") or "").strip()
+    if dado and dado != esperado:
+        raise HTTPException(422, f"El dígito de verificación no corresponde: para ese NIT es {esperado}")
+    payload["numero_documento"] = nit.limpiar(payload["numero_documento"])
+    payload["dv"] = esperado
+
+
+VALIDADORES = {"terceros": _validar_tercero}
+
 for prefix, coleccion in RECURSOS:
     router.include_router(
         crud_router(
@@ -43,6 +59,7 @@ for prefix, coleccion in RECURSOS:
             coleccion=coleccion,
             modulo_permiso="configuracion",
             tags=[f"configuracion:{prefix.strip('/')}"],
+            validar=VALIDADORES.get(coleccion),
         )
     )
 

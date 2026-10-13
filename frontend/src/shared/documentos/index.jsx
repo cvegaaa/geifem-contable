@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import api from "../../core/api.js";
 import { useVistaDocumento } from "./Imprimible.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
@@ -162,23 +162,55 @@ export function Avisos({ error, mensaje }) {
 }
 
 /** Selector de cuentas del PUC que reciben movimientos ("1105 — Caja"). */
-export function SelectorCuenta({ cuentas, value, onChange, porCodigo = false, vacio = "Seleccionar cuenta…", ...rest }) {
-  const opciones = cuentas
-    .filter((c) => c.acepta_movimientos !== false && c.activo !== false)
-    .sort((a, b) => a.codigo.localeCompare(b.codigo));
+export function SelectorCuenta({ cuentas, value, onChange, porCodigo = false, vacio = "Buscar cuenta por código o nombre…", ...rest }) {
+  const opciones = useMemo(
+    () =>
+      cuentas
+        .filter((c) => c.acepta_movimientos !== false && c.activo !== false)
+        .sort((a, b) => a.codigo.localeCompare(b.codigo)),
+    [cuentas]
+  );
+  const clave = (c) => (porCodigo ? c.codigo : c.id);
+  const actual = opciones.find((c) => clave(c) === value);
+  const etiqueta = actual ? `${actual.codigo} — ${actual.nombre}` : "";
+  const [texto, setTexto] = useState(null); // null = muestra la selección
+  const [abierto, setAbierto] = useState(false);
+
+  const q = (texto ?? "").trim().toLowerCase();
+  const visibles = (q ? opciones.filter((c) => `${c.codigo} ${c.nombre}`.toLowerCase().includes(q)) : opciones).slice(0, 50);
+
+  const elegir = (c) => {
+    onChange(c ? clave(c) : "");
+    setTexto(null);
+    setAbierto(false);
+  };
+
   return (
-    <select
-      {...rest}
-      value={value || ""}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full border border-slate-300 rounded-sm px-2 py-2 bg-white text-sm focus:ring-2 focus:ring-geifem-blue focus:outline-hidden"
-    >
-      <option value="">{vacio}</option>
-      {opciones.map((c) => (
-        <option key={c.id} value={porCodigo ? c.codigo : c.id}>
-          {c.codigo} — {c.nombre}
-        </option>
-      ))}
-    </select>
+    <div className="relative">
+      <input
+        {...rest}
+        value={texto ?? etiqueta}
+        placeholder={vacio}
+        onFocus={(e) => { setAbierto(true); e.target.select(); }}
+        onChange={(e) => { setTexto(e.target.value); setAbierto(true); }}
+        onBlur={() => setTimeout(() => { setAbierto(false); setTexto(null); }, 150)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && abierto && visibles.length) { e.preventDefault(); elegir(visibles[0]); }
+          if (e.key === "Escape") { setAbierto(false); setTexto(null); }
+        }}
+        className="w-full border border-slate-300 rounded-sm px-2 py-2 bg-white text-sm focus:ring-2 focus:ring-geifem-blue focus:outline-hidden"
+      />
+      {abierto && (
+        <ul className="absolute z-30 mt-1 w-full max-h-56 overflow-auto bg-white border border-slate-300 rounded-sm shadow-lg text-sm">
+          {value && <li onMouseDown={() => elegir(null)} className="px-2 py-1.5 text-slate-500 hover:bg-slate-100 cursor-pointer">Quitar selección</li>}
+          {visibles.length === 0 && <li className="px-2 py-1.5 text-slate-500">Sin coincidencias</li>}
+          {visibles.map((c) => (
+            <li key={c.id} onMouseDown={() => elegir(c)} className="px-2 py-1.5 hover:bg-geifem-blue/10 cursor-pointer">
+              <span className="font-mono text-xs text-slate-500 mr-2">{c.codigo}</span>{c.nombre}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from api.contabilidad import DOC_TIPO, PREFIJOS, _aplicar
 from api.inventario import _validar_cuentas_producto
 from core.auth.dependencies import get_empresa_activa, require_permiso
+from core import nit
 from core.dinero import centavos
 from core.documentos import (
     ahora,
@@ -191,7 +192,7 @@ PLANTILLAS = {
             ("agente_retenedor", "Agente retenedor (SI/NO)"), ("agente_reteiva", "Agente de ReteIVA (SI/NO)"),
             ("gran_contribuyente", "Gran contribuyente (SI/NO)"),
         ],
-        "ejemplo": ["Distribuidora Andina SAS", "proveedor", "juridica", "NIT", "900123456", "7", "Cra 10 # 20-30", "Bogotá",
+        "ejemplo": ["Distribuidora Andina SAS", "proveedor", "juridica", "NIT", "900123456", "8", "Cra 10 # 20-30", "Bogotá",
                     "compras@andina.co", "3001234567", "ORDINARIO", "SI", "SI", "NO", "NO", "NO", "NO"],
         "ayuda": ["Los campos con * son obligatorios. El número de documento no puede repetirse.",
                   "Las columnas de perfil tributario definen las retenciones: déjalas vacías si no aplican."],
@@ -340,10 +341,19 @@ async def _validar_terceros(empresa_id: str, filas) -> tuple[list[dict], list[di
             regimen = (_texto(f.get("regimen")) or "ORDINARIO").upper()
             if regimen not in ("ORDINARIO", "SIMPLE"):
                 raise ValueError("régimen debe ser ORDINARIO o SIMPLE")
+            tipo_doc = (_texto(f.get("tipo_documento")) or "CC").upper()
+            dv = _texto(f.get("dv"))
+            if tipo_doc == "NIT":
+                esperado = nit.digito_verificacion(doc)
+                if esperado is None:
+                    raise ValueError("el NIT debe ser numérico (máximo 15 dígitos)")
+                if dv and dv.removesuffix(".0") != esperado:
+                    raise ValueError(f"el DV de {doc} no corresponde: debería ser {esperado}")
+                doc, dv = nit.limpiar(doc), esperado
             docs.append({
                 "nombre": nombre, "tipo": tipo, "tipo_persona": _norm(f.get("tipo_persona")) or "natural",
-                "tipo_documento": (_texto(f.get("tipo_documento")) or "CC").upper(), "numero_documento": doc,
-                "dv": _texto(f.get("dv")), "direccion": _texto(f.get("direccion")), "ciudad": _texto(f.get("ciudad")),
+                "tipo_documento": tipo_doc, "numero_documento": doc,
+                "dv": dv, "direccion": _texto(f.get("direccion")), "ciudad": _texto(f.get("ciudad")),
                 "email": _texto(f.get("email")), "telefono": _texto(f.get("telefono")), "regimen": regimen,
                 "responsable_iva": _bool(f.get("responsable_iva"), True), "declarante_renta": _bool(f.get("declarante_renta"), True),
                 "autorretenedor": _bool(f.get("autorretenedor"), False), "agente_retenedor": _bool(f.get("agente_retenedor"), False),

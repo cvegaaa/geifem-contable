@@ -66,6 +66,7 @@ import ComprasRetenciones from "./modules/compras/retenciones/index.jsx";
 // Tesorería
 import Caja from "./modules/tesoreria/caja/index.jsx";
 import Bancos from "./modules/tesoreria/bancos/index.jsx";
+import AntiguedadCartera from "./modules/tesoreria/antiguedad-cartera/index.jsx";
 import CxcCxp from "./modules/tesoreria/cxc-cxp/index.jsx";
 import FlujoCaja from "./modules/tesoreria/flujo-caja/index.jsx";
 import ConciliacionAuto from "./modules/tesoreria/conciliacion-bancaria-auto/index.jsx";
@@ -158,6 +159,7 @@ export default function App() {
           <Route path="caja" element={<Caja />} />
           <Route path="bancos" element={<Bancos />} />
           <Route path="cxc-cxp" element={<CxcCxp />} />
+          <Route path="antiguedad-cartera" element={<AntiguedadCartera />} />
           <Route path="flujo-caja" element={<FlujoCaja />} />
           <Route path="conciliacion-bancaria-auto" element={<ConciliacionAuto />} />
         </Route>

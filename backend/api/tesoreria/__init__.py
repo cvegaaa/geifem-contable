@@ -8,7 +8,7 @@
 - El saldo de cada caja/banco se calcula con los movimientos no anulados.
 """
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -294,6 +294,97 @@ async def cxc_cxp(
     _=Depends(require_permiso("tesoreria", "leer")),
 ):
     return await _cartera(empresa_id)
+
+
+TRAMOS = (("no_vencido", "No vencido"), ("d1_30", "1-30 días"), ("d31_60", "31-60 días"),
+          ("d61_90", "61-90 días"), ("d90_mas", "Más de 90 días"))
+
+
+def _tramo(dias_mora: int) -> str:
+    if dias_mora <= 0:
+        return "no_vencido"
+    if dias_mora <= 30:
+        return "d1_30"
+    if dias_mora <= 60:
+        return "d31_60"
+    if dias_mora <= 90:
+        return "d61_90"
+    return "d90_mas"
+
+
+def _fecha(valor: str | None, defecto: date) -> date:
+    try:
+        return date.fromisoformat(str(valor)[:10])
+    except (TypeError, ValueError):
+        return defecto
+
+
+@tesoreria.get("/cartera/antiguedad")
+async def antiguedad_cartera(
+    tipo: Literal["cxc", "cxp"] = "cxc",
+    corte: str | None = Query(None, description="Fecha de corte (AAAA-MM-DD); por defecto hoy"),
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("tesoreria", "leer")),
+):
+    """Cartera por edades: saldo pendiente por tercero según los días de mora al corte."""
+    hoy = _fecha(corte, date.today())
+    docs = (await _cartera(empresa_id))[tipo]
+    por_tercero: dict[str, dict] = {}
+    for d in docs:
+        mora = (hoy - _fecha(d.get("vencimiento") or d.get("fecha"), hoy)).days
+        clave = d.get("tercero_id") or d.get("tercero") or "—"
+        fila = por_tercero.setdefault(clave, {
+            "tercero_id": d.get("tercero_id"), "tercero": d.get("tercero") or "Sin tercero",
+            "documentos": 0, "total": 0.0, **{k: 0.0 for k, _ in TRAMOS},
+        })
+        fila[_tramo(mora)] += d["saldo"]
+        fila["total"] += d["saldo"]
+        fila["documentos"] += 1
+    filas = sorted(por_tercero.values(), key=lambda f: -f["total"])
+    for f in filas:
+        for k in ["total"] + [k for k, _ in TRAMOS]:
+            f[k] = redondear(f[k], 2)
+    totales = {k: redondear(sum(f[k] for f in filas), 2) for k in ["total"] + [k for k, _ in TRAMOS]}
+    return {"tipo": tipo, "corte": hoy.isoformat(), "tramos": [{"clave": k, "etiqueta": e} for k, e in TRAMOS],
+            "filas": filas, "totales": totales}
+
+
+@tesoreria.get("/cartera/estado-cuenta")
+async def estado_cuenta(
+    tercero_id: str,
+    tipo: Literal["cxc", "cxp"] = "cxc",
+    empresa_id: str = Depends(get_empresa_activa),
+    _=Depends(require_permiso("tesoreria", "leer")),
+):
+    """Estado de cuenta de un tercero: facturas con su saldo y los pagos aplicados."""
+    db = get_db()
+    es_cxc = tipo == "cxc"
+    coleccion = "facturas" if es_cxc else "facturas_proveedor"
+    campo_tercero = "cliente_id" if es_cxc else "proveedor_id"
+    facturas, total, saldo = [], 0.0, 0.0
+    async for f in db[coleccion].find({"empresa_id": empresa_id, campo_tercero: tercero_id, **NO_ANULADO}).sort("fecha", 1):
+        t = float(f.get("total", 0) if es_cxc else f.get("total_a_pagar", f.get("total", 0)))
+        sd = float(f.get("saldo_pendiente", t))
+        facturas.append({
+            "id": str(f["_id"]),
+            "documento": (f.get("numero") if es_cxc else f.get("numero_factura")) or "",
+            "fecha": f.get("fecha"), "vencimiento": f.get("fecha_vencimiento"),
+            "total": redondear(t, 2), "saldo": redondear(sd, 2),
+            "estado": "pagada" if sd <= 0.009 else ("parcial" if sd < t - 0.009 else "pendiente"),
+        })
+        total += t
+        saldo += sd
+    pagos = []
+    async for p in db.pagos.find({"empresa_id": empresa_id, "tercero_id": tercero_id,
+                                  "documento_tipo": tipo, **NO_ANULADO}).sort("fecha", 1):
+        pagos.append({"id": str(p["_id"]), "numero": p.get("numero"), "fecha": p.get("fecha"),
+                      "documento": p.get("documento_numero"), "valor": redondear(float(p.get("valor", 0)), 2)})
+    tercero = await db.terceros.find_one({"_id": oid(tercero_id, "tercero_id"), "empresa_id": empresa_id})
+    return {
+        "tipo": tipo, "tercero": (tercero or {}).get("nombre", ""), "documento": (tercero or {}).get("numero_documento", ""),
+        "facturas": facturas, "pagos": pagos,
+        "resumen": {"facturado": redondear(total, 2), "pagado": redondear(total - saldo, 2), "saldo": redondear(saldo, 2)},
+    }
 
 
 # ---------------------------------------------------------------------------

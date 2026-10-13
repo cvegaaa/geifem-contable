@@ -89,6 +89,7 @@ const MODULOS = [
       { to: "/tesoreria/caja", titulo: "Caja", descripcion: "Cajas y sus movimientos (MT)." },
       { to: "/tesoreria/bancos", titulo: "Bancos", descripcion: "Cuentas bancarias y sus movimientos (MT)." },
       { to: "/tesoreria/cxc-cxp", titulo: "Cartera y pagos", descripcion: "Cobros (RC) y pagos a proveedores (CE)." },
+      { to: "/tesoreria/antiguedad-cartera", titulo: "Antigüedad de cartera", descripcion: "Cartera por edades y estado de cuenta por tercero." },
       { to: "/tesoreria/flujo-caja", titulo: "Flujo de caja", descripcion: "Ingresos y egresos por día." },
       { to: "/tesoreria/conciliacion-bancaria-auto", titulo: "Conciliación bancaria", descripcion: "Cruza el extracto con tus movimientos." },
     ],

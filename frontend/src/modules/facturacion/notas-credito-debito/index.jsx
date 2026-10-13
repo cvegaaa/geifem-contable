@@ -15,7 +15,7 @@ import {
   useAnulacion,
 } from "../../../shared/documentos/index.jsx";
 
-const lineaVacia = () => ({ descripcion: "", cantidad: 1, precio_unitario: 0, tarifa_iva: 19 });
+const lineaVacia = () => ({ descripcion: "", cantidad: 1, precio_unitario: 0, tarifa_iva: 19, producto_id: null, inventariable: false, reingresar: false });
 
 export default function Page() {
   const { puede } = useAuth();
@@ -67,6 +67,9 @@ export default function Page() {
           cantidad: it.cantidad,
           precio_unitario: it.precio_unitario,
           tarifa_iva: it.tarifa_iva,
+          producto_id: it.producto_id || null,
+          inventariable: Boolean(it.inventariable),
+          reingresar: false,
         }))
       );
     }
@@ -88,6 +91,9 @@ export default function Page() {
             cantidad: it.cantidad,
             precio_unitario: it.precio_unitario,
             tarifa_iva: it.tarifa_iva,
+            producto_id: it.producto_id || null,
+            inventariable: Boolean(it.producto_id),
+            reingresar: Boolean(it.reingresar),
           }))
         : [lineaVacia()]
     );
@@ -122,6 +128,8 @@ export default function Page() {
         cantidad: Number(l.cantidad),
         precio_unitario: Number(l.precio_unitario),
         tarifa_iva: Number(l.tarifa_iva),
+        producto_id: tipo === "credito" && l.reingresar ? l.producto_id : null,
+        reingresar: tipo === "credito" && Boolean(l.reingresar),
       })),
     };
     setGuardando(true);
@@ -223,6 +231,7 @@ export default function Page() {
                   <th className="text-right px-3 py-2 w-24">Cantidad</th>
                   <th className="text-right px-3 py-2 w-32">Valor unit.</th>
                   <th className="text-right px-3 py-2 w-24">IVA</th>
+                  {tipo === "credito" && <th className="px-3 py-2 w-28 text-center" title="La mercancía vuelve a la bodega al costo con que salió">Reingresa</th>}
                   <th className="w-8"></th>
                 </tr>
               </thead>
@@ -239,6 +248,13 @@ export default function Page() {
                         <option value={19}>19%</option>
                       </Select>
                     </td>
+                    {tipo === "credito" && (
+                      <td className="text-center">
+                        {l.inventariable ? (
+                          <input type="checkbox" checked={l.reingresar} onChange={(e) => actualizar(i, "reingresar", e.target.checked)} />
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
                     <td className="text-center">
                       <button onClick={() => setLineas((ls) => ls.filter((_, idx) => idx !== i))} disabled={lineas.length === 1}
                         className="text-red-500 text-xs disabled:opacity-30">✕</button>
@@ -256,6 +272,7 @@ export default function Page() {
                   </td>
                   <td className="px-3 py-2 text-right font-bold text-geifem-navy">{fmtCOP(totales.total)}</td>
                   <td></td>
+                  {tipo === "credito" && <td></td>}
                 </tr>
               </tfoot>
             </table>

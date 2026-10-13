@@ -82,10 +82,21 @@ Primero se completa la funcionalidad general de cada módulo; después se revisa
 
 ### Compras, tesorería e impuestos
 
+Hecho:
+
+- [x] **Cartera por edades** (Tesorería › Antigüedad de cartera) por cobrar y por pagar, con fecha de corte, y **estado de cuenta por tercero** (facturas, pagos y saldo), imprimible y exportable.
+- [x] **Devoluciones**: la nota crédito puede reingresar mercancía a la bodega al costo con que salió en la venta (inventario / costo de venta), valida que no se devuelva más de lo vendido y se revierte al editar o anular.
+- [x] **Formulario 300 (IVA)** reescrito: ventas por tarifa netas de notas crédito/débito, IVA descontable, ReteIVA sufrida y saldo a pagar o a favor.
+- [x] Dígito de verificación del NIT: se calcula y se valida en terceros y en la importación.
+- [x] Selector de cuentas con búsqueda por código o nombre.
+- [x] Pruebas automatizadas: 70 en verde.
+
+Pendiente:
+
 - [ ] Endurecer órdenes de compra, recepción, facturas de proveedor y retenciones.
-- [ ] Caja, bancos, cartera (CxC/CxP) sobre el libro único.
+- [ ] Anticipos de clientes y proveedores, pagos que cubren varias facturas y transferencias entre cajas y bancos.
 - [ ] Recepción de facturas de proveedor (XML) y eventos RADIAN.
-- [ ] Formulario 300; para SIMPLE, formularios 260 y 2593.
+- [ ] Para SIMPLE, formularios 260 y 2593 (hoy el 260 es un resumen de ingresos por mes).
 
 ## Fase 3 — Capa de integración con Alegra (penúltima tarea) · ⚪ pendiente
 
@@ -157,14 +168,11 @@ Pendiente:
 Detectados en las revisiones; se resuelven en la fase indicada.
 
 - El costo de venta se fija al registrar la venta; si luego se registra una compra con fecha anterior, el kardex se recalcula pero el asiento de costo no → Fase 1.
-- Una nota crédito por devolución no reingresa la mercancía al inventario (las notas no se ligan a productos) → Fase 1.
 - La factura de proveedor no ingresa mercancía por sí sola: para que el kardex suba se registra la entrada de mercancía. Evaluar una opción "ingresar a bodega" en la misma factura para comercios pequeños → Fase 1.
 - ICA propio: se causa manualmente con un comprobante contable (decisión del cliente) → sin cambios.
 - Exógena 2276 (rentas de trabajo) y certificados de ingresos y retenciones salen de nómina → Nómina.
 - Los conceptos de retención sugeridos y la UVT deben revisarse cada año con el contador → recurrente.
 - Cuentas por cobrar/pagar por tercero (p. ej. clientes del exterior) y cuentas por bodega aún no son parametrizables → Fase 1.
-- El selector de cuentas es una lista simple; con un PUC grande necesita búsqueda → Fase 1.
-- Sin validación del dígito de verificación del NIT de terceros → Fase 1.
 - Calendario tributario sin festivos (`FESTIVOS_CO` vacío) → Fase 4.
 - Los reportes (balances, libros) aún no tienen botón propio de exportación; los listados sí → Fase 2.
 
@@ -176,3 +184,4 @@ Detectados en las revisiones; se resuelven en la fase indicada.
 - **2026-10-12 (noche, 2)** — Motor de impuestos por perfil tributario (empresa, tercero, producto): IVA, retenciones sufridas y practicadas, autorretención, SIMPLE según art. 911 ET. 31 pruebas en verde; verificado en el navegador el cambio SIMPLE → ordinario sobre el formulario de producto. Nómina y nómina electrónica quedan planificadas (alcance y decisiones pendientes en el ROADMAP).
 - **2026-10-13** — Impuestos completados (notas con retenciones prorrateadas, INC con su cuenta, reportes fiscales, saldos iniciales contabilizados, cuentas por concepto) y módulo de **nómina** (empleados, novedades, liquidación mensual/quincenal con asiento, pagos, prestaciones, PILA, liquidación de contrato, paquete mensual consolidado de nómina electrónica; transmisión a Alegra pendiente de su API). 48 pruebas en verde; flujo verificado en el navegador.
 - **2026-10-13 (cierre de la Fase 0)** — Límite de intentos de login, respaldo con restauración verificada, CI, CSP/HSTS y cambio de contraseña; cierre de periodos; redondeo exacto al centavo; vista imprimible, exportación e importación Excel, búsqueda y paginación, administración de usuarios y menú móvil. 65 pruebas en verde. Cambio de decisión: dinero con redondeo al centavo en lugar de `Decimal128`; paginación en el cliente por ahora. Orden acordado: funcionalidad general → detalle por módulo → capa de Alegra → agentes MCP. La revisión contable la hace el propietario.
+- **2026-10-13 (Fase 2, primer bloque)** — Cartera por edades y estado de cuenta, devoluciones con reingreso a inventario, Formulario 300 reescrito, DV del NIT y selector de cuentas con búsqueda. 70 pruebas en verde.
